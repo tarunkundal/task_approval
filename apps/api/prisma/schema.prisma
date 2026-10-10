@@ -1,0 +1,113 @@
+// Prisma ORM 7 schema. Connection URL lives in prisma.config.ts; the runtime client
+// connects through the MariaDB/MySQL driver adapter (src/lib/prisma-client.ts).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  PENDING_APPROVAL
+  COMPLETED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String   @db.VarChar(100)
+  email        String   @unique @db.VarChar(254)
+  passwordHash String   @db.VarChar(100)
+  role         Role     @default(EMPLOYEE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignedTasks Task[]              @relation("TaskAssignee")
+  createdTasks  Task[]              @relation("TaskCreator")
+  reviewedTasks Task[]              @relation("TaskReviewer")
+  comments      TaskComment[]
+  statusChanges TaskStatusHistory[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  title        String     @db.VarChar(200)
+  description  String     @db.Text
+  priority     Priority   @default(MEDIUM)
+  status       TaskStatus @default(PENDING)
+  /// Calendar date only (no time / timezone). API format: YYYY-MM-DD.
+  dueDate      DateTime   @db.Date
+  assignedToId String
+  createdById  String
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  /// Soft delete marker. Non-null rows are excluded from ordinary queries.
+  deletedAt    DateTime?
+
+  assignedTo User  @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  createdBy  User  @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  reviewedBy User? @relation("TaskReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  comments TaskComment[]
+  history  TaskStatusHistory[]
+
+  @@index([assignedToId, status])
+  @@index([status])
+  @@index([priority])
+  @@index([deletedAt, createdAt])
+  @@map("tasks")
+}
+
+/// Comments are not editable, so there is no updatedAt.
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  authorId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@map("task_comments")
+}
+
+/// Append-only audit trail: creation (fromStatus = null) and every status transition.
+model TaskStatusHistory {
+  id         String      @id @default(cuid())
+  taskId     String
+  fromStatus TaskStatus?
+  toStatus   TaskStatus
+  actorId    String
+  reason     String?     @db.Text
+  createdAt  DateTime    @default(now())
+
+  task  Task @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@map("task_status_history")
+}

@@ -1,0 +1,87 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "non-blocking",
+      "confidence": "likely",
+      "label": "Error logs will carry Prisma payloads",
+      "location": "apps/api/src/middleware/error-handler.ts",
+      "issue": "errorHandler logs err.stack for every unexpected error; Prisma validation/known-request errors embed invocation arguments, so once write paths exist field values (possibly passwordHash) would reach logs, which spec §7 forbids. Not live in Phase 2.",
+      "action": "In Phase 3/4, map known Prisma errors (P2002 -> 409, P2003 -> 400) and log only name/code for Prisma errors."
+    },
+    {
+      "id": 2,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "No TLS path for the runtime DB connection",
+      "location": "apps/api/src/lib/database-url.ts, apps/api/src/lib/prisma-client.ts",
+      "issue": "parseMysqlUrl discards the DATABASE_URL query string, so ssl options reach prisma migrate but never the runtime MariaDB adapter; with allowPublicKeyRetrieval off in production there is no way to connect to a managed MySQL 8 host.",
+      "action": "In Phase 7, add an explicit SSL option (env var or parsed query options) and verify against the chosen host."
+    },
+    {
+      "id": 3,
+      "severity": "non-blocking",
+      "confidence": "likely",
+      "label": "Release tooling in devDependencies",
+      "location": "apps/api/package.json",
+      "issue": "prisma (postinstall, build, migrate deploy) and tsx (prisma db seed) are devDependencies, so a production-only install breaks postinstall and the release/seed steps.",
+      "action": "In Phase 7, move them to dependencies or document a full install on the host."
+    },
+    {
+      "id": 4,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "NODE_ENV defaults to development",
+      "location": "apps/api/src/config/env.ts",
+      "issue": "An unset NODE_ENV on a host enables allowPublicKeyRetrieval and, once Phase 3 lands, non-Secure cookies (fail-open default).",
+      "action": "Require NODE_ENV explicitly, or derive the cookie Secure flag from an https FRONTEND_URL / fail startup on the mismatch."
+    },
+    {
+      "id": 5,
+      "severity": "non-blocking",
+      "confidence": "likely",
+      "label": "Concurrent seeds can double-insert sample tasks",
+      "location": "apps/api/prisma/seed.ts (seedSampleTasks)",
+      "issue": "task.count() followed by inserts takes no lock under REPEATABLE READ; two overlapping seed runs would both insert the 5 sample tasks and history.",
+      "action": "Take GET_LOCK / SELECT ... FOR UPDATE, or document the seed as a single-instance release step."
+    },
+    {
+      "id": 6,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Workflow table, enum parity and helpers untested",
+      "location": "packages/shared/src/workflow.ts, packages/shared/src/enums.ts, apps/api/src/lib/{database-url,dates}.ts",
+      "issue": "canPerformAction/getAvailableActions, parseMysqlUrl and the date-only helpers have no tests; nothing fails at compile time if shared enums drift from Prisma enums.",
+      "action": "In Phase 4, add unit tests and a type-level equality check between Prisma $Enums and shared enums; keep server enforcement atomic in updateMany rather than reusing canPerformAction."
+    },
+    {
+      "id": 7,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Seed idempotency has no automated test",
+      "location": "apps/api/test",
+      "issue": "Seed-twice evidence is manual; ARCHITECTURE §10 lists 'seed can be re-run safely' as an automated test.",
+      "action": "Add an automated seed re-run test by Phase 6."
+    },
+    {
+      "id": 8,
+      "severity": "non-blocking",
+      "confidence": "likely",
+      "label": "Password max length counts characters, not bytes",
+      "location": "packages/shared/src/schemas/users.ts",
+      "issue": "max(72) counts UTF-16 code units; multibyte passwords over 72 bytes are silently truncated by bcrypt.",
+      "action": "Validate UTF-8 byte length when POST /users is implemented."
+    },
+    {
+      "id": 9,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Stale ARCHITECTURE.md status line",
+      "location": "docs/ARCHITECTURE.md",
+      "issue": "Header still reads 'Phase 1 draft, awaiting approval' although D1-D10 are approved.",
+      "action": "Update the status line."
+    }
+  ],
+  "reviewDoc": "/Users/tarunchauhan/Documents/projects/task-approval-system/docs/phase2-review.md"
+}
