@@ -28,6 +28,27 @@ describe('parseEnv', () => {
     expect(env.FRONTEND_URL).toEqual(['http://localhost:3000']);
   });
 
+  it('requires NODE_ENV (no silent development default)', () => {
+    expect(problemsFor({ ...valid, NODE_ENV: undefined })).toEqual(['NODE_ENV: is missing']);
+  });
+
+  it('defaults TRUST_PROXY to 0 and accepts a hop count', () => {
+    expect(parseEnv(valid).TRUST_PROXY).toBe(0);
+    expect(parseEnv({ ...valid, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
+    expect(problemsFor({ ...valid, TRUST_PROXY: 'yes' })).toEqual([
+      expect.stringMatching(/^TRUST_PROXY: /),
+    ]);
+  });
+
+  it('normalizes FRONTEND_URL entries to bare origins', () => {
+    const env = parseEnv({
+      ...valid,
+      FRONTEND_URL: 'https://app.example.com/, http://localhost:3000',
+    });
+
+    expect(env.FRONTEND_URL).toEqual(['https://app.example.com', 'http://localhost:3000']);
+  });
+
   it('rejects a missing JWT_SECRET', () => {
     expect(problemsFor({ ...valid, JWT_SECRET: undefined })).toContain('JWT_SECRET: is missing');
   });

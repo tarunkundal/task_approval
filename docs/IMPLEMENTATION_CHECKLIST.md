@@ -33,19 +33,25 @@ Review (`docs/phase2-review.md`): APPROVED. Its 9 non-blocking findings are assi
 - [x] `pnpm -r typecheck`, `pnpm -r lint` and `pnpm -r build` all pass. *(final run: all exit 0)*
 
 ## Phase 3 — Authentication & permissions (§7)
-- [ ] `POST /auth/login`: bcrypt check, JWT in an httpOnly cookie, same 401 for unknown email and wrong password, rate limited.
-- [ ] `POST /auth/logout` clears the cookie (204).
-- [ ] `GET /auth/me` returns a safe user DTO.
-- [ ] `authenticate` middleware: pinned algorithm, expiry checked, user reloaded from the DB.
-- [ ] `requireRole('ADMIN')` middleware.
-- [ ] Cookie flags: httpOnly, Secure in production, SameSite=Lax, Max-Age. *(verify: test inspects `Set-Cookie`)*
-- [ ] CSRF Origin / `Sec-Fetch-Site` check on unsafe methods. *(verify: test with a foreign Origin → 403)*
-- [ ] Helmet headers, CORS allowlist with credentials, JSON body size limit.
-- [ ] Centralized error handler with consistent JSON; no stack traces, hashes or tokens. *(verify: tests)*
-- [ ] Tests: valid login, invalid login, unauthenticated → 401, employee on an admin route → 403.
+Full evidence: `docs/phase3-verification.md`. Final run: `pnpm install --frozen-lockfile`, `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r build` all `exit=0`; `pnpm format:check` clean; `pnpm --filter api test` → 7 files, 58/58 passed (16 from Phase 2 + 42 new). Not committed (orchestrator commits).
+- [x] `POST /auth/login`: bcrypt check, JWT in an httpOnly cookie, same 401 for unknown email and wrong password, rate limited. *(auth.test.ts: 200 safe DTO with normalized email; wrong password vs unknown email → identical 401 `INVALID_CREDENTIALS`; dummy-hash compare when the user is missing; security.test.ts: 429 `RATE_LIMITED` after the configured limit, keyed by IP + email)*
+- [x] `POST /auth/logout` clears the cookie (204). *(auth.test.ts: 204, `tas_token=;` with epoch `Expires`, same `HttpOnly`/`SameSite=Lax`/`Path=/`; idempotent without a cookie; manual proxy check #6)*
+- [x] `GET /auth/me` returns a safe user DTO. *(auth.test.ts: 200 `{id,name,email,role}` / 401 without cookie; manual proxy check #2, #3)*
+- [x] `authenticate` middleware: pinned algorithm, expiry checked, user reloaded from the DB. *(auth.test.ts: tampered, other secret, `alg: none`, expired, missing `exp`, deleted user, unknown `sub` → 401; signed token claiming ADMIN for an employee → role `EMPLOYEE` from DB)*
+- [x] `requireRole('ADMIN')` middleware. *(users.test.ts: `GET /users` employee → 403 `FORBIDDEN`, admin → 200)*
+- [x] Cookie flags: httpOnly, Secure in production, SameSite=Lax, Max-Age. *(auth.test.ts inspects `Set-Cookie`: `HttpOnly; SameSite=Lax; Path=/; Max-Age=28800`, no `Secure` in test; `Secure` with production config; manual proxy check #1 shows the same flags through Next.js)*
+- [x] CSRF Origin / `Sec-Fetch-Site` check on unsafe methods. *(security.test.ts: foreign Origin → 403 `CSRF_REJECTED`, allowed Origin → 200, `Sec-Fetch-Site: cross-site`/`same-site` without Origin → 403, `Origin: null` → 403, logout covered; non-JSON body → 415; manual proxy check #4 → 403)*
+- [x] Helmet headers, CORS allowlist with credentials, JSON body size limit. *(app.test.ts helmet test; security.test.ts: preflight ACAO = allowed origin + credentials true, foreign origin no ACAO; >100kb body → 413)*
+- [x] Centralized error handler with consistent JSON; no stack traces, hashes or tokens. *(every new error test asserts the `{ error: { code, message } }` shape; login body checked for no token, no `passwordHash`, no `$2b$`; users list checked for no hashes; malformed JSON test checks no stack)*
+- [x] Tests: valid login, invalid login, unauthenticated → 401, employee on an admin route → 403. *(auth.test.ts, users.test.ts; 58/58 pass)*
+- [x] Task ownership policy (`services/task-access.ts`): scope in the query, 404 outside scope. *(task-access.test.ts on the real test DB: own task loads; other employee's, soft-deleted and unknown ids → 404; admin loads any non-deleted task)*
+- [x] `GET /users` (admin, read-only employee list) added early as the admin route under test. *(users.test.ts; manual proxy check #5)*
+- [x] Phase 2 review #4: `NODE_ENV` required (API env and seed). *(env.test.ts: missing → `NODE_ENV: is missing`; local `.env`/`.env.test` already set it)*
+- [x] `TRUST_PROXY` env (hop count, default 0) applied via `app.set('trust proxy', …)`. *(env.test.ts default/parse tests; value tuned in Phase 7)*
+- [x] Manual D1 proxy check through `next start` → Express. *(phase3-verification.md: login 200 + `Set-Cookie` via :3000, `/me` 200 with cookie, foreign Origin 403, both servers stopped)*
 
 ## Phase 4 — Task APIs & workflow (§6, §8–§12)
-- [ ] `GET /users` (admin): employee list, no `passwordHash`.
+- [x] `GET /users` (admin): employee list, no `passwordHash`. *(done in Phase 3; users.test.ts)*
 - [ ] `POST /users` (admin): creates an EMPLOYEE only; role not accepted from the body; duplicate email → 409.
 - [ ] `POST /tasks`: admin only; status PENDING; assignee must be an existing EMPLOYEE; history row with `from=null`.
 - [ ] `GET /tasks`: pagination (max 100); status, priority, employee and `q` filters; employee scope enforced in the query.
@@ -99,6 +105,7 @@ Review (`docs/phase2-review.md`): APPROVED. Its 9 non-blocking findings are assi
 - [ ] Production build and start scripts; `prisma migrate deploy` as the release step.
 - [ ] Production env vars documented; no hardcoded localhost; `API_URL` points at the deployed API.
 - [ ] Cookie and CSRF checked through the proxy on real HTTPS URLs.
+- [ ] `TRUST_PROXY` set to the real hop count. Verify `req.ip` is the client IP on the deployed chain and that `X-Forwarded-For` can't be spoofed, so rate-limit keys stay per client (Phase 3 review #1).
 - [ ] Production seed instructions (safe to re-run; no password resets).
 - [ ] Public-URL checklist executed. *(URLs supplied by the user)*
 

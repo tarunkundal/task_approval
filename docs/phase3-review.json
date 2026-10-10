@@ -1,0 +1,51 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Rate-limit keys collapse behind the proxy",
+      "location": "apps/api/src/middleware/rate-limit.ts, apps/api/src/app.ts (trust proxy), docs/IMPLEMENTATION_CHECKLIST.md Phase 7",
+      "issue": "With TRUST_PROXY=0 behind the Next.js D1 proxy, req.ip is the proxy's IP for every user: the login key becomes effectively email-only (anyone can lock any account out for 15 min with 10 bad attempts) and the write limiter becomes one 300/15min bucket for all users. Recorded only as a note in phase3-verification.md; no Phase 7 checklist item.",
+      "action": "Add a Phase 7 checklist item to set TRUST_PROXY to the real hop count and verify req.ip on the deployed chain without over-trusting a spoofable X-Forwarded-For."
+    },
+    {
+      "id": 2,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "No per-IP login ceiling",
+      "location": "apps/api/src/middleware/rate-limit.ts (createLoginLimiter)",
+      "issue": "The login limiter is keyed by IP + email only; rotating the email gives each attempt a fresh key, so one IP can password-spray at the write limiter's 300 per 15 minutes.",
+      "action": "Stack a coarse IP-only login limiter (e.g. 50 per 15 min) in front of the IP+email one, or document the trade-off."
+    },
+    {
+      "id": 3,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Check order omits pre-auth guards",
+      "location": "apps/api/src/app.ts, docs/ARCHITECTURE.md §7",
+      "issue": "CSRF 403, 415, 413 and the write limiter's 429 run app-wide before authenticate's 401; ARCHITECTURE §7 documents the order as starting at authenticate (401).",
+      "action": "Document the transport guards ahead of the 401 -> 403 -> 400 -> 404 -> 409 chain before Phase 4 ordering tests and docs/API.md."
+    },
+    {
+      "id": 4,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Bcrypt cost duplicated",
+      "location": "apps/api/src/lib/password.ts (DUMMY_HASH), apps/api/prisma/seed.ts (BCRYPT_COST)",
+      "issue": "Timing parity between unknown-email and wrong-password logins (measured 289 ms vs 292 ms) depends on two separate cost-12 literals; Phase 4 POST /users will add a third hashing site and tests hash at cost 4, so drift would go unnoticed.",
+      "action": "Export one BCRYPT_COST from lib/password.ts and use it for the seed, user creation and the dummy hash."
+    },
+    {
+      "id": 5,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Ownership not enforced over HTTP yet",
+      "location": "apps/api/src/services/task-access.ts, apps/api/test/task-access.test.ts",
+      "issue": "findTaskInScope / visibleTasksWhere are correct and query-scoped but only exercised by direct calls; no route uses them yet.",
+      "action": "In Phase 4, load every task through these helpers (passing tx inside transitions) and add route-level tests: employee -> 404 on another's task, employee -> 403 on approve/reject."
+    }
+  ],
+  "reviewDoc": "/Users/tarunchauhan/Documents/projects/task-approval-system/docs/phase3-review.md"
+}

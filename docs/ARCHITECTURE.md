@@ -1,6 +1,6 @@
 # Architecture & Implementation Plan
 
-Status: **Approved 2026-10-10. Phase 2 complete.** Source of truth for requirements: `PROJECT_SPEC.md`.
+Status: **Approved 2026-10-10. Phase 2 complete; Phase 3 implemented, awaiting review.** Source of truth for requirements: `PROJECT_SPEC.md`.
 Decisions marked **(D#)** are listed in section 11 and need confirmation before Phase 2.
 
 ## 1. Environment findings (Phase 1 inspection)
@@ -268,3 +268,26 @@ Full list: `docs/phase2-verification.md`.
 
 ### Local environment quirk
 On the current network, `binaries.prisma.sh` doesn't resolve. If `pnpm install` fails at `prisma generate`, set `PRISMA_ENGINES_MIRROR=https://r2.prisma.sh` for that shell.
+
+### Phase 3 notes (auth details fixed during implementation)
+- **Cookie** name `tas_token`; `HttpOnly; SameSite=Lax; Path=/; Max-Age=<JWT_EXPIRES_IN>`, plus `Secure` when `NODE_ENV=production`. Logout clears it with the same attributes (epoch `Expires`).
+- **Response shapes.** `POST /auth/login` and `GET /auth/me` return the bare user DTO `{ id, name, email, role }` (`UserDto` in `packages/shared`). `GET /users` returns `{ data: UserDto[] }`. Login failures: 401 `INVALID_CREDENTIALS` "Invalid email or password"; other auth failures: 401 `UNAUTHENTICATED`.
+- **CSRF / content type** (`middleware/csrf.ts`, runs before body parsing on POST/PUT/PATCH/DELETE): an `Origin` must be in `FRONTEND_URL`; with no `Origin`, `Sec-Fetch-Site` must be `same-origin` or `none` if present (`same-site` is rejected because it can't be matched to the allowlist); with neither header the request is treated as a non-browser client. Failures → 403 `CSRF_REJECTED`. A request body that isn't `application/json` → **415 `UNSUPPORTED_MEDIA_TYPE`**.
+- **`FRONTEND_URL`** entries are normalized to bare origins (`new URL(x).origin`) and used for both CORS and CSRF.
+- **Rate limits** (created inside `createApp()`, overridable through `createApp({ rateLimits })`): login 10 / 15 min keyed by IP + normalized email; all unsafe `/api/v1` requests 300 / 15 min per IP. 429 → `{ error: { code: 'RATE_LIMITED', message } }`. In-memory store, so limits are per instance.
+- **`TRUST_PROXY`** (integer hop count, default 0 = trust none) feeds `app.set('trust proxy')`. Behind the Next.js proxy, `req.ip` is the proxy's address until this is tuned in Phase 7.
+- **`NODE_ENV` is required** by the API env schema and by the seed (Phase 2 review #4).
+- **Ownership policy** lives in `apps/api/src/services/task-access.ts`: `visibleTasksWhere(actor)`, `taskInScopeWhere(actor, id)` and `findTaskInScope(actor, id, db?)` (throws 404 `Task not found`). Phase 4 task endpoints must load tasks only through these.
+
+### Phase 3 review follow-ups (from `docs/phase3-review.md`)
+
+The orchestrator re-ran the checks independently: typecheck exited 0, lint exited 0, and API tests passed 58/58.
+
+**Phase 4**
+- **#2** Add a coarse IP-only login limiter (about 50 per 15 minutes) in front of the existing IP+email limiter, or document the trade-off.
+- **#3** Document the transport checks (CORS, CSRF 403, 415, 413, 429) that run before the 401 → 403 → 400 → 404 → 409 chain, in §7 and `docs/API.md`.
+- **#4** Use one exported bcrypt cost constant in the seed, `POST /users` and the dummy hash.
+- **#5** Load every task through `findTaskInScope` / `visibleTasksWhere` (pass `tx` inside transactions). Add route-level tests: an employee gets 404 on another employee's task and 403 on approve/reject.
+
+**Phase 7**
+- **#1** Set `TRUST_PROXY` to the real hop count and verify `req.ip` on the deployed chain (added to the checklist).

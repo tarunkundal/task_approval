@@ -20,7 +20,8 @@ const optionalPassword = z.preprocess(
 );
 
 const seedEnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  // Required, like the API: an unset NODE_ENV must not enable development-only DB options.
+  NODE_ENV: z.enum(['development', 'test', 'production']),
   DATABASE_URL: z.string().startsWith('mysql://', 'must be a mysql:// connection URL'),
   SEED_ADMIN_PASSWORD: optionalPassword,
   SEED_EMPLOYEE1_PASSWORD: optionalPassword,

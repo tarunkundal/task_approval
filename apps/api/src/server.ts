@@ -1,13 +1,13 @@
 // Loads apps/api/.env when present (local development). In production the host provides env vars.
 import 'dotenv/config';
-import { getEnv } from './config/env.js';
 import { createApp } from './app.js';
+import { getEnv } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const env = getEnv();
-const app = createApp();
+const app = createApp({ env });
 
 const server = app.listen(env.PORT, () => {
   console.info(`[api] listening on port ${env.PORT} (${env.NODE_ENV})`);

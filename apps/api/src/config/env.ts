@@ -3,7 +3,9 @@ import { z } from 'zod';
 const DURATION = /^\d+[smhd]$/;
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  // Required on purpose (no default): an unset NODE_ENV must not silently disable the
+  // production-only safeguards such as the Secure cookie flag.
+  NODE_ENV: z.enum(['development', 'test', 'production']),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   DATABASE_URL: z
     .string()
@@ -19,7 +21,11 @@ const envSchema = z.object({
     .string()
     .min(1)
     .transform((value) => value.split(',').map((origin) => origin.trim()))
-    .pipe(z.array(z.url({ protocol: /^https?$/ })).min(1)),
+    .pipe(z.array(z.url({ protocol: /^https?$/ })).min(1))
+    // Compare against the bare origin (scheme://host[:port]) the browser sends.
+    .transform((urls) => urls.map((url) => new URL(url).origin)),
+  /** Number of reverse-proxy hops in front of the API whose X-Forwarded-For is trusted. */
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
 });
 
 export type Env = z.infer<typeof envSchema>;
