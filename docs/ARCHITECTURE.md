@@ -1,6 +1,6 @@
 # Architecture & Implementation Plan
 
-Status: **Approved 2026-10-10. Phase 2 complete; Phase 3 implemented, awaiting review.** Source of truth for requirements: `PROJECT_SPEC.md`.
+Status: **Approved 2026-10-10. Phases 2–3 complete; Phase 4 implemented, awaiting review.** Source of truth for requirements: `PROJECT_SPEC.md`.
 Decisions marked **(D#)** are listed in section 11 and need confirmation before Phase 2.
 
 ## 1. Environment findings (Phase 1 inspection)
@@ -136,7 +136,11 @@ TaskStatusHistory  id · taskId → Task · fromStatus? · toStatus · actorId �
 | `GET /dashboard/summary` | counts for all tasks | counts for own tasks | excludes deleted tasks; independent of pagination |
 | `GET /health` | public | public | includes a DB ping; 503 if the DB is down |
 
-Checks run in this order: authenticate (401) → role (403) → validate params, query and body (400) → load the task within the user's scope (404) → state rules (409).
+Checks run in this order:
+1. **Transport guards**, app-wide, before any router: CORS allowlist; CSRF Origin / `Sec-Fetch-Site` check on unsafe methods (403 `CSRF_REJECTED`); non-JSON body (415); body over 100 kb (413) or malformed JSON (400); rate limits (429).
+2. Authenticate (401) → role (403) → validate params, query and body (400) → load the task within the user's scope (404) → state rules (409).
+
+So an unauthenticated cross-site POST gets 403, not 401. The full table is in `docs/API.md`.
 
 ## 8. REST API conventions
 
@@ -170,7 +174,7 @@ Checks run in this order: authenticate (401) → role (403) → validate params,
 
 - **Tools.** Vitest and Supertest against `createApp()`, using a real MySQL **test database** (`task_approval_test` in the same container, configured in `apps/api/.env.test`).
 - **Safety guard.** Test setup refuses to run unless `NODE_ENV=test` and the database name ends in `_test`. Tables are cleared between test files; files run sequentially (`fileParallelism: false`) for determinism.
-- **Rollback test (spec #9).** The workflow service is called with an actor ID that doesn't exist. The status update succeeds, then the history insert fails its foreign key, and the test asserts the status rolled back. This uses a real database failure, not a mock.
+- **Rollback test (spec #9).** The workflow service is called with an actor ID that doesn't exist. The status update succeeds, then the history insert fails its foreign key (asserted as Prisma `P2003`), and the test asserts the status rolled back. This uses a real database failure, not a mock.
 - **Coverage.** All 9 required scenarios plus: employee task listing scoped to the employee; rejecting mass-assignment fields in PATCH; assignee must be an EMPLOYEE; double approval (one request gets 200, the other 409); no `passwordHash` in responses; and that the seed can be re-run safely.
 - **Frontend.** Typecheck, lint and `next build`, plus a manual browser walkthrough of both roles. Playwright smoke tests are optional and only if time allows.
 
@@ -291,3 +295,31 @@ The orchestrator re-ran the checks independently: typecheck exited 0, lint exite
 
 **Phase 7**
 - **#1** Set `TRUST_PROXY` to the real hop count and verify `req.ip` on the deployed chain (added to the checklist).
+
+### Phase 4 notes (task API details fixed during implementation)
+
+No schema change or new dependency was needed. The full contract is in `docs/API.md`.
+
+- **Layout.**
+  - `services/tasks.service.ts`: CRUD and list.
+  - `services/task-workflow.service.ts`: the only place status changes.
+  - `services/task-activity.service.ts`: comments and history.
+  - `services/dashboard.service.ts`: counts.
+  - `services/task-dto.ts`: the response mapping.
+  - Every task read and write goes through `task-access.ts` (`visibleTasksWhere` / `taskInScopeWhere` / `findTaskInScope`, with `tx` inside transactions).
+- **Workflow enforcement.** The guard is `updateMany({ where: AND[scope, id, status = from] })`; 0 rows → re-read in scope → 404 or 409 `INVALID_TRANSITION` (`details: { action, currentStatus }`). Roles are gated by `requireRole` on each route. approve/reject also check ADMIN in the service, because the employee scope alone would match an assignee's own task. start/submit rely on the route gate for the ADMIN exclusion, since an admin gains no privilege from them. The shared `canPerformAction` is used only by the UI.
+- **Reject** stores the reason only in the history row; there is no feedback comment. `TaskDto.latestRejectionReason` exposes it while the task is back IN_PROGRESS.
+- **PATCH** checks run in this order: scope (404), then COMPLETED (409 `TASK_COMPLETED`), then assignee (400 `INVALID_ASSIGNEE`). Like transitions, the conditional update (`scope AND status ≠ COMPLETED`) is the transaction's first statement: under InnoDB REPEATABLE READ a plain SELECT first would fix a snapshot, so after a concurrent approve/delete the update would match 0 rows while the re-read still showed the old row and returned 200 (Phase 4 review #1). On 0 rows the task is re-read (404 / 409). An unknown assignee fails the FK (P2003 → `INVALID_ASSIGNEE`); an ADMIN assignee is checked after the update and the throw rolls it back. Edits and reassignments write no history (D4).
+- **Search.** Prisma's `contains` does not escape LIKE wildcards on MySQL (found by a test), so `%`, `_` and `\` are escaped in the service.
+- **Query validation.** Express 5 exposes `req.query` as a getter, so `validateQuery` defines the parsed value on the request instance and controllers read it via `parsedQuery<T>(req)`. `validateParams` checks that `:id` is a cuid.
+- **Prisma errors** are mapped in the central handler: P2002 → 409 `CONFLICT`, P2003 → 400, P2025 → 404, others → 500. For any Prisma error only `{ name, code }` is logged (Phase 2 review #1).
+- **bcrypt.** `BCRYPT_COST = 12` is exported from `lib/password.ts` and used by the seed, `POST /users` and the login dummy hash. The dummy hash is now generated at startup with that cost instead of being a literal (Phase 3 review #4).
+- **Passwords** for `POST /users` must be ≥ 8 characters and ≤ 72 UTF-8 bytes (`utf8ByteLength` in shared; Phase 2 review #8).
+- **Login rate limits.** A coarse per-IP limiter (`loginIp`, 50 / 15 min) runs before the IP + email limiter (Phase 3 review #2). Behind the proxy with `TRUST_PROXY=0` it becomes one shared bucket (50 failed logins from anyone lock everyone out for 15 minutes); a dedicated Phase 7 checklist item covers keying it on the real client IP (Phase 4 review #3).
+- **Dashboard** `overdue` uses today's UTC date. The UI may recompute it against the viewer's local date.
+- **`parseDateOnly`** now rejects non-existent dates (round-trip check) instead of rolling them over.
+- **Tests** cover Phase 2 review #6 and Phase 3 reviews #3 and #5:
+  - `test/unit.test.ts`: workflow table, `parseMysqlUrl`, date helpers.
+  - `test/enum-parity.types.ts`: compile-time check against the Prisma `$Enums`, included in `typecheck`.
+  - Route-level ownership tests (`task-activity.test.ts`, `workflow.test.ts`).
+  - Transport guards documented in §7 and `docs/API.md`.

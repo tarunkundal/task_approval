@@ -1,0 +1,34 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "non-blocking",
+      "confidence": "likely",
+      "label": "Race tests don't force the interleaving",
+      "location": "apps/api/test/workflow.test.ts:306-350; apps/api/test/tasks.test.ts:357-406",
+      "issue": "The transition concurrency tests (Promise.all) and the PATCH race tests (sleep(300) before committing the held lock) depend on scheduling. On a slow runner they can pass without the requests overlapping, so a regression to read-then-write would only fail intermittently.",
+      "action": "Optional: before committing the held transaction, wait until the PATCH or second transition is observably blocked (e.g. poll performance_schema.data_lock_waits / information_schema.innodb_trx) instead of sleeping."
+    },
+    {
+      "id": 2,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "loginIp is a global bucket behind the proxy (tracked)",
+      "location": "apps/api/src/middleware/rate-limit.ts:59-67; docs/IMPLEMENTATION_CHECKLIST.md:111",
+      "issue": "With TRUST_PROXY=0 behind the Next.js proxy, req.ip is the proxy's address, so 50 failed logins from anyone return 429 to every user for 15 minutes.",
+      "action": "Complete the Phase 7 checklist item (key loginIp on the real client IP and verify on the deployed chain) before release."
+    }
+  ],
+  "priorFindingsResolved": [
+    "#1 PATCH stale-snapshot 200: conditional updateMany is now the first statement; 2 lock-holding race tests plus a recorded negative check",
+    "#2 Rollback test: asserts { name: 'PrismaClientKnownRequestError', code: 'P2003' }",
+    "#3 loginIp lockout: dedicated Phase 7 checklist item and ARCHITECTURE §14 note",
+    "#4 PATCH check order: documented in docs/API.md PATCH section and the generic check-order note"
+  ],
+  "checks": {
+    "pnpm -r typecheck": "exit=0 (/tmp/p4-typecheck.log)",
+    "pnpm --filter api test": "exit=0, 14 files, 201/201 passed (/tmp/p4-apitest.log)"
+  },
+  "reviewDoc": "/Users/tarunchauhan/Documents/projects/task-approval-system/docs/phase4-review.md"
+}

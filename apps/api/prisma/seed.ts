@@ -4,14 +4,13 @@
  *   name and role are never changed by re-running the seed.
  * - Inserts sample tasks with consistent status history only when the Task table is empty.
  */
-import bcrypt from 'bcryptjs';
 import 'dotenv/config';
 import { z } from 'zod';
 import type { Prisma, PrismaClient } from '../src/generated/prisma/client.js';
 import { formatDateOnly, parseDateOnly } from '../src/lib/dates.js';
+// Same cost (BCRYPT_COST) as POST /users and the login dummy hash.
+import { hashPassword } from '../src/lib/password.js';
 import { createPrismaClient } from '../src/lib/prisma-client.js';
-
-const BCRYPT_COST = 12;
 
 // Empty values (e.g. copied from .env.example) fall back to the documented demo passwords.
 const optionalPassword = z.preprocess(
@@ -133,7 +132,7 @@ async function upsertUsers(prisma: PrismaClient, users: DemoUser[]) {
       console.info(`  kept    ${user.email}`);
       continue;
     }
-    const passwordHash = await bcrypt.hash(user.password, BCRYPT_COST);
+    const passwordHash = await hashPassword(user.password);
     // upsert (not create) so a concurrent seed run cannot fail on the unique email.
     const saved = await prisma.user.upsert({
       where: { email: user.email },

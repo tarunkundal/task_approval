@@ -6,14 +6,15 @@ import { validateBody } from '../middleware/validate.js';
 export interface AuthRouterDeps {
   config: AuthControllerConfig;
   authenticate: RequestHandler;
-  loginLimiter: RequestHandler;
+  /** Per-IP ceiling, then per IP + email. */
+  loginLimiters: [ipLimiter: RequestHandler, ipEmailLimiter: RequestHandler];
 }
 
-export function authRouter({ config, authenticate, loginLimiter }: AuthRouterDeps): Router {
+export function authRouter({ config, authenticate, loginLimiters }: AuthRouterDeps): Router {
   const router = Router();
   const controller = authController(config);
 
-  router.post('/login', loginLimiter, validateBody(loginSchema), controller.login);
+  router.post('/login', ...loginLimiters, validateBody(loginSchema), controller.login);
   router.post('/logout', controller.logout);
   router.get('/me', authenticate, controller.me);
 

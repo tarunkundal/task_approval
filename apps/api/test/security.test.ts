@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
+import { DEFAULT_RATE_LIMITS } from '../src/middleware/rate-limit.js';
 import { allowedOrigin, createTestUser, type TestUser } from './helpers/auth.js';
 
 const LOGIN = '/api/v1/auth/login';
@@ -151,6 +152,36 @@ describe('rate limiting', () => {
 
     const res = await request(app).post(LOGIN).send(credentials());
     expect(res.status).toBe(200);
+  });
+
+  it('caps login attempts per IP even when the email changes every time', async () => {
+    const app = createApp({
+      rateLimits: {
+        loginIp: { limit: 3, windowMs: 60_000 },
+        login: { limit: 100, windowMs: 60_000 },
+      },
+    });
+    for (let i = 0; i < 3; i += 1) {
+      const res = await request(app)
+        .post(LOGIN)
+        .send({ email: `spray${i}@test.local`, password: 'Guess@12345' });
+      expect(res.status).toBe(401);
+    }
+
+    const limited = await request(app)
+      .post(LOGIN)
+      .send({ email: 'spray-next@test.local', password: 'Guess@12345' });
+
+    expect(limited.status).toBe(429);
+    expect(limited.body).toEqual({
+      error: { code: 'RATE_LIMITED', message: 'Too many login attempts, please try again later' },
+    });
+    expect((await request(app).post(LOGIN).send(credentials())).status).toBe(429);
+  });
+
+  it('uses 50 per 15 minutes per IP by default for the coarse login limiter', () => {
+    expect(DEFAULT_RATE_LIMITS.loginIp).toEqual({ limit: 50, windowMs: 15 * 60 * 1000 });
+    expect(DEFAULT_RATE_LIMITS.login).toEqual({ limit: 10, windowMs: 15 * 60 * 1000 });
   });
 
   it('limits state-changing requests in general', async () => {

@@ -10,6 +10,9 @@ export interface RateLimitRule {
 }
 
 export interface RateLimitOptions {
+  /** Coarse per-IP ceiling on login attempts, whatever the email (stops password spraying). */
+  loginIp: RateLimitRule;
+  /** Login attempts per IP + email. */
   login: RateLimitRule;
   /** All state-changing /api/v1 requests (POST/PUT/PATCH/DELETE). */
   write: RateLimitRule;
@@ -18,6 +21,7 @@ export interface RateLimitOptions {
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
 export const DEFAULT_RATE_LIMITS: RateLimitOptions = {
+  loginIp: { limit: 50, windowMs: FIFTEEN_MINUTES },
   login: { limit: 10, windowMs: FIFTEEN_MINUTES },
   write: { limit: 300, windowMs: FIFTEEN_MINUTES },
 };
@@ -49,6 +53,16 @@ export function createLoginLimiter(rule: RateLimitRule): RequestHandler {
       const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
       return `${ipKeyGenerator(req.ip ?? '')}|${email}`;
     },
+  });
+}
+
+/**
+ * Login attempts per client IP only. Runs before the IP + email limiter so rotating the email
+ * cannot spray passwords across many accounts from one address.
+ */
+export function createLoginIpLimiter(rule: RateLimitRule): RequestHandler {
+  return limiter(rule, 'Too many login attempts, please try again later', {
+    keyGenerator: (req) => ipKeyGenerator(req.ip ?? ''),
   });
 }
 

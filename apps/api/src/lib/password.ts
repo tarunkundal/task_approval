@@ -1,13 +1,29 @@
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 
 /**
- * Cost-12 bcrypt hash of a random value nobody knows. Compared against when the email is
- * unknown, so a failed login takes the same time whether or not the account exists.
+ * The one bcrypt cost used everywhere: the seed, `POST /users` and the login dummy hash.
+ * Sharing it keeps unknown-email and wrong-password logins equally slow.
  */
-const DUMMY_HASH = '$2b$12$DslRw6iRA4rd18YB7MBJEe5C0MeJtzEUj51Mz40MZf.U2bnAHJqf.';
+export const BCRYPT_COST = 12;
+
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_COST);
+}
+
+let dummyHash: Promise<string> | undefined;
+
+/**
+ * Hash of a random value nobody knows, created once at BCRYPT_COST. Compared against when the
+ * email is unknown, so a failed login takes the same time whether or not the account exists.
+ */
+export function getDummyHash(): Promise<string> {
+  dummyHash ??= hashPassword(randomUUID());
+  return dummyHash;
+}
 
 /** Checks a password against a stored hash, or against the dummy hash when there is none. */
 export async function verifyPassword(password: string, hash: string | undefined): Promise<boolean> {
-  const matches = await bcrypt.compare(password, hash ?? DUMMY_HASH);
+  const matches = await bcrypt.compare(password, hash ?? (await getDummyHash()));
   return hash !== undefined && matches;
 }

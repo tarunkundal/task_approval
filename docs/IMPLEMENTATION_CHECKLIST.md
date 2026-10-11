@@ -51,32 +51,34 @@ Full evidence: `docs/phase3-verification.md`. Final run: `pnpm install --frozen-
 - [x] Manual D1 proxy check through `next start` → Express. *(phase3-verification.md: login 200 + `Set-Cookie` via :3000, `/me` 200 with cookie, foreign Origin 403, both servers stopped)*
 
 ## Phase 4 — Task APIs & workflow (§6, §8–§12)
+Full evidence: `docs/phase4-verification.md`. Final run: `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r build` all `exit=0`; `pnpm format:check` clean; `pnpm --filter api exec vitest run` → 14 files, 199/199 passed (58 earlier + 141 new); `pnpm db:seed` ×2 idempotent; manual curl smoke run against the built API passed. Review iteration 2 (phase4-review.md #1–#4 fixed): same commands `exit=0`, `pnpm --filter api test` → 14 files, 201/201; PATCH smoke passed. Not committed (orchestrator commits).
 - [x] `GET /users` (admin): employee list, no `passwordHash`. *(done in Phase 3; users.test.ts)*
-- [ ] `POST /users` (admin): creates an EMPLOYEE only; role not accepted from the body; duplicate email → 409.
-- [ ] `POST /tasks`: admin only; status PENDING; assignee must be an existing EMPLOYEE; history row with `from=null`.
-- [ ] `GET /tasks`: pagination (max 100); status, priority, employee and `q` filters; employee scope enforced in the query.
-- [ ] `GET /tasks/:id`: admin sees all; employee sees own only, others → 404; deleted → 404.
-- [ ] `PATCH /tasks/:id`: admin only; strict whitelist; no status or ownership mass assignment; COMPLETED → 409 (D5).
-- [ ] `DELETE /tasks/:id`: admin only; soft delete → 204; excluded from lists and counts.
-- [ ] `start` / `submit`: assigned employee only, correct status only; atomic with history.
-- [ ] `approve`: admin only; PENDING_APPROVAL → COMPLETED; `reviewedById`/`reviewedAt` set; atomic with history.
-- [ ] `reject`: admin only; reason required; → IN_PROGRESS; reviewer recorded; reason in history; atomic.
-- [ ] Concurrency guard: conditional update; the loser gets 409.
-- [ ] Comments: GET and POST with scope checks; 1–2000 chars; author DTO without sensitive fields.
-- [ ] History: GET with scope check; no edit or delete endpoints.
-- [ ] `GET /dashboard/summary`: role-scoped counts, deleted tasks excluded, independent of pagination.
-- [ ] `docs/API.md`: bodies, responses, auth rules, status codes.
-- [ ] Required tests (§15):
-  - [ ] 1. Unauthenticated → 401 on a task endpoint
-  - [ ] 2. Employee cannot approve; status unchanged
-  - [ ] 3. Admin approves PENDING_APPROVAL; history persisted
-  - [ ] 4. Admin rejects → IN_PROGRESS
-  - [ ] 5. Employee 1 cannot access Employee 2's task (404)
-  - [ ] 6. Invalid transitions rejected (409)
-  - [ ] 7. Invalid task inputs rejected (400)
-  - [ ] 8. Employee workflow PENDING → IN_PROGRESS → PENDING_APPROVAL
-  - [ ] 9. Status and history roll back together on failure
-- [ ] Extra tests: PATCH mass-assignment rejected; non-employee assignee rejected; double approve → one 200 / one 409; employee list scope; dashboard scope.
+- [x] `POST /users` (admin): creates an EMPLOYEE only; role not accepted from the body; duplicate email → 409. *(users.test.ts: 201 DTO with role EMPLOYEE, `role` key → 400, `ZOE@test.local` → 409 `EMAIL_TAKEN`, employee → 403; ≤ 72 UTF-8 bytes: 75-byte `€` password → 400, 72 bytes → 201; hash rounds = `BCRYPT_COST`)*
+- [x] `POST /tasks`: admin only; status PENDING; assignee must be an existing EMPLOYEE; history row with `from=null`. *(tasks.test.ts: 201 DTO + history `[null→PENDING, admin]`; employee 403; nonexistent / ADMIN assignee → 400 `INVALID_ASSIGNEE`; smoke #4)*
+- [x] `GET /tasks`: pagination (max 100); status, priority, employee and `q` filters; employee scope enforced in the query. *(task-list.test.ts: meta, pages, each filter, `pageSize=101` → 400, employee sees own only; task-activity.test.ts: `?assignedToId=<emp2>` as emp1 → empty; smoke #18)*
+- [x] `GET /tasks/:id`: admin sees all; employee sees own only, others → 404; deleted → 404. *(tasks.test.ts detail + delete tests; smoke #6)*
+- [x] `PATCH /tasks/:id`: admin only; strict whitelist; no status or ownership mass assignment; COMPLETED → 409 (D5). *(tasks.test.ts: `status`/`createdById`/`reviewedById`/`reviewedAt`/`deletedAt`/unknown/empty → 400 with the DB row unchanged; COMPLETED → 409 `TASK_COMPLETED`; reassign keeps status; smoke #16. Race with a concurrent approve / delete → 409 / 404 with the edit not applied: "PATCH racing…" tests, which fail with 200 against the old read-first code; iteration 2 smoke #4–#13)*
+- [x] `DELETE /tasks/:id`: admin only; soft delete → 204; excluded from lists and counts. *(tasks.test.ts: 204, then 404 on detail, absent from list, history kept, repeat → 404, employee 403; dashboard.test.ts: deleted tasks not counted)*
+- [x] `start` / `submit`: assigned employee only, correct status only; atomic with history. *(workflow.test.ts #5, #6, #8; admin → 403; smoke #7, #10, #14)*
+- [x] `approve`: admin only; PENDING_APPROVAL → COMPLETED; `reviewedById`/`reviewedAt` set; atomic with history. *(workflow.test.ts #2, #3; smoke #8, #15)*
+- [x] `reject`: admin only; reason required; → IN_PROGRESS; reviewer recorded; reason in history; atomic. *(workflow.test.ts #4: reason in history and `latestRejectionReason`, 6 invalid bodies → 400; smoke #11, #12)*
+- [x] Concurrency guard: conditional update; the loser gets 409. *(workflow.test.ts: double approve, approve vs reject, double start via `Promise.all` → `[200, 409]`, one history row)*
+- [x] Comments: GET and POST with scope checks; 1–2000 chars; author DTO without sensitive fields. *(task-activity.test.ts: 201, order, author `{id,name,role}`, invalid → 400, other employee / deleted → 404; smoke #13)*
+- [x] History: GET with scope check; no edit or delete endpoints. *(task-activity.test.ts: order, actor DTO, PATCH/DELETE → 404 route-not-found; smoke #17)*
+- [x] `GET /dashboard/summary`: role-scoped counts, deleted tasks excluded, independent of pagination. *(dashboard.test.ts: 27 tasks vs a 20-row page, per-employee counts, zero keys, overdue rules; smoke #19)*
+- [x] `docs/API.md`: bodies, responses, auth rules, status codes. *(written; check order incl. transport guards; ARCHITECTURE §7 updated)*
+- [x] Required tests (§15), named `[spec #N]` in the test files:
+  - [x] 1. Unauthenticated → 401 on a task endpoint *(tasks.test.ts)*
+  - [x] 2. Employee cannot approve; status unchanged *(workflow.test.ts)*
+  - [x] 3. Admin approves PENDING_APPROVAL; history persisted *(workflow.test.ts)*
+  - [x] 4. Admin rejects → IN_PROGRESS *(workflow.test.ts)*
+  - [x] 5. Employee 1 cannot access Employee 2's task (404) *(task-activity.test.ts, workflow.test.ts)*
+  - [x] 6. Invalid transitions rejected (409) *(workflow.test.ts, 9 cases)*
+  - [x] 7. Invalid task inputs rejected (400) *(tasks.test.ts, 15 cases + PATCH cases)*
+  - [x] 8. Employee workflow PENDING → IN_PROGRESS → PENDING_APPROVAL *(workflow.test.ts, plus the full reject/resubmit/approve cycle)*
+  - [x] 9. Status and history roll back together on failure *(workflow.test.ts: nonexistent actor → real FK failure on the history insert, asserted as `P2003`; status still PENDING, one history row)*
+- [x] Extra tests: PATCH mass-assignment rejected; non-employee assignee rejected; double approve → one 200 / one 409; employee list scope; dashboard scope. *(see above; plus prisma-errors.test.ts, unit.test.ts, the security.test.ts IP limiter)*
+- [x] Review follow-ups. Phase 2 #1 (Prisma mapping + `{name, code}`-only logging; prisma-errors.test.ts), #6 (unit.test.ts + `enum-parity.types.ts`, negative check fails as expected), #8 (UTF-8 byte limit). Phase 3 #2 (IP login limiter; security.test.ts), #3 (transport guards in ARCHITECTURE §7 and API.md), #4 (`BCRYPT_COST` shared by seed, `POST /users` and the dummy hash), #5 (all task access via `task-access.ts`; route-level 404/403 tests). *(phase4-verification.md)*
 
 ## Phase 5 — Frontend (§9, §13, §14)
 - [ ] Login page (RHF + Zod, inline errors, toasts) and logout.
@@ -106,6 +108,7 @@ Full evidence: `docs/phase3-verification.md`. Final run: `pnpm install --frozen-
 - [ ] Production env vars documented; no hardcoded localhost; `API_URL` points at the deployed API.
 - [ ] Cookie and CSRF checked through the proxy on real HTTPS URLs.
 - [ ] `TRUST_PROXY` set to the real hop count. Verify `req.ip` is the client IP on the deployed chain and that `X-Forwarded-For` can't be spoofed, so rate-limit keys stay per client (Phase 3 review #1).
+- [ ] `loginIp` limiter (50 / 15 min, `middleware/rate-limit.ts`) keyed on a real client IP before release. With `TRUST_PROXY=0` behind the Next.js proxy, `req.ip` is the proxy's address, so the limiter is one global bucket: after 50 login attempts from anyone, every user (even with the correct password) gets 429 for 15 minutes. *(verify on the deployed chain: two clients with different IPs get separate buckets; Phase 4 review #3)*
 - [ ] Production seed instructions (safe to re-run; no password resets).
 - [ ] Public-URL checklist executed. *(URLs supplied by the user)*
 

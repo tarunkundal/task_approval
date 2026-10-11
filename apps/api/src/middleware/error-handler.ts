@@ -1,6 +1,18 @@
 import type { ErrorRequestHandler, Response } from 'express';
 import { ZodError } from 'zod';
 import { AppError, ErrorCode } from '../errors/app-error.js';
+import { isPrismaError, prismaErrorSummary } from '../lib/prisma-errors.js';
+
+/** Prisma known-request codes that are client errors rather than server faults. */
+const PRISMA_ERROR_MAP: Record<string, { status: number; code: ErrorCode; message: string }> = {
+  P2002: { status: 409, code: ErrorCode.CONFLICT, message: 'A record with these values exists' },
+  P2003: {
+    status: 400,
+    code: ErrorCode.VALIDATION_ERROR,
+    message: 'A referenced record does not exist',
+  },
+  P2025: { status: 404, code: ErrorCode.NOT_FOUND, message: 'Resource not found' },
+};
 
 interface ErrorBody {
   error: { code: ErrorCode; message: string; details?: unknown };
@@ -56,6 +68,19 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, _req, res, next)
       send(res, err.status, { code: ErrorCode.VALIDATION_ERROR, message: 'Invalid request body' });
       return;
     }
+  }
+
+  if (isPrismaError(err)) {
+    // Never log the message, meta or invocation: they can contain request values.
+    const summary = prismaErrorSummary(err);
+    console.error('[api] database error', summary);
+    const mapped = summary.code === undefined ? undefined : PRISMA_ERROR_MAP[summary.code];
+    if (mapped) {
+      send(res, mapped.status, { code: mapped.code, message: mapped.message });
+      return;
+    }
+    send(res, 500, { code: ErrorCode.INTERNAL_ERROR, message: 'An unexpected error occurred' });
+    return;
   }
 
   // Unexpected: log server-side (name/message/stack only), return a generic message.

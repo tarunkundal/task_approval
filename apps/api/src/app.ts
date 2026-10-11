@@ -5,18 +5,22 @@ import helmet from 'helmet';
 import { getEnv, type Env } from './config/env.js';
 import type { AuthCookieConfig } from './lib/auth-cookie.js';
 import { durationToSeconds } from './lib/jwt.js';
+import { getDummyHash } from './lib/password.js';
 import { createAuthenticate } from './middleware/authenticate.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
 import {
+  createLoginIpLimiter,
   createLoginLimiter,
   createWriteLimiter,
   DEFAULT_RATE_LIMITS,
   type RateLimitOptions,
 } from './middleware/rate-limit.js';
 import { authRouter } from './routes/auth.routes.js';
+import { dashboardRouter } from './routes/dashboard.routes.js';
 import { healthRouter } from './routes/health.routes.js';
+import { tasksRouter } from './routes/tasks.routes.js';
 import { usersRouter } from './routes/users.routes.js';
 import { checkDatabase, type DatabaseCheck } from './services/health.service.js';
 
@@ -40,6 +44,8 @@ export function createApp(deps: AppDependencies = {}): Express {
     maxAgeSeconds: durationToSeconds(env.JWT_EXPIRES_IN),
   };
   const authenticate = createAuthenticate({ jwtSecret: env.JWT_SECRET, cookie });
+  // Compute the login dummy hash up front so the first unknown-email login isn't slower.
+  void getDummyHash();
 
   const app = express();
 
@@ -72,12 +78,15 @@ export function createApp(deps: AppDependencies = {}): Express {
     authRouter({
       config: { jwtSecret: env.JWT_SECRET, cookie },
       authenticate,
-      loginLimiter: createLoginLimiter(rateLimits.login),
+      loginLimiters: [
+        createLoginIpLimiter(rateLimits.loginIp),
+        createLoginLimiter(rateLimits.login),
+      ],
     }),
   );
   app.use('/api/v1/users', usersRouter(authenticate));
-
-  // Phase 4: /api/v1/tasks, /api/v1/dashboard
+  app.use('/api/v1/tasks', tasksRouter(authenticate));
+  app.use('/api/v1/dashboard', dashboardRouter(authenticate));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
