@@ -1,7 +1,11 @@
 node_modules
 dist
 .next
+.next-e2e
 coverage
+test-results
+playwright-report
+apps/web/e2e/.auth
 pnpm-lock.yaml
 apps/api/src/generated
 apps/api/prisma/migrations

@@ -1,6 +1,6 @@
 # Architecture & Implementation Plan
 
-Status: **Approved 2026-10-10. Phases 2–3 complete; Phase 4 implemented, awaiting review.** Source of truth for requirements: `PROJECT_SPEC.md`.
+Status: **Approved 2026-10-10. Phases 2–4 complete; Phase 5 (frontend) implemented, awaiting review.** Source of truth for requirements: `PROJECT_SPEC.md`.
 Decisions marked **(D#)** are listed in section 11 and need confirmation before Phase 2.
 
 ## 1. Environment findings (Phase 1 inspection)
@@ -323,3 +323,15 @@ No schema change or new dependency was needed. The full contract is in `docs/API
   - `test/enum-parity.types.ts`: compile-time check against the Prisma `$Enums`, included in `typecheck`.
   - Route-level ownership tests (`task-activity.test.ts`, `workflow.test.ts`).
   - Transport guards documented in §7 and `docs/API.md`.
+
+### Phase 5 notes (frontend)
+
+Full plan: `docs/phase5-plan.md` (decisions P1–P22). Evidence: `docs/phase5-verification.md`. No backend change was needed in Phase 5.
+
+- **Routes (P1).** `/login`; admin `/admin`, `/admin/tasks`, `/admin/tasks/new`, `/admin/tasks/[id]`, `/admin/tasks/[id]/edit`, `/admin/employees`; employee `/employee`, `/employee/tasks/[id]`. `/` redirects by role. Route groups `(auth)` and `(app)`.
+- **Guards (P2–P5).** `src/proxy.ts` (Next 16 Proxy) only checks that `tas_token` exists and forwards the path in `x-pathname`. `(app)/layout.tsx` validates the session with `GET /auth/me` server-side (`src/lib/api/server.ts`, `server-only`, React `cache`, forwards only `tas_token`); the admin/employee layouts send a wrong role to its own home. `?next=` goes through `safeReturnPath`. The API stays the authority.
+- **Data (P6–P10).** All data except `/auth/me` is fetched client-side with TanStack Query through relative `/api/v1` paths (same-origin rewrite, D1). Query keys live in `src/lib/query-keys.ts` and every mutation's cache effect in `src/lib/query-invalidation.ts`. A stale 409/404 toasts the API message and refetches.
+- **Forms (P11).** React Hook Form + the shared Zod schemas; API `VALIDATION_ERROR` details map to fields. Edit sends only dirty fields.
+- **Dates (P13).** `dueDate` strings are never parsed with `new Date(string)`; overdue badges use the viewer's local date, the dashboard Overdue card uses the API's UTC count.
+- **Errors.** Both error boundaries use Next's `retry` (re-fetches the server render); verified in a browser with the API down and back up (`e2e/error-boundary.spec.ts`).
+- **Tests.** Vitest for pure modules (`TZ=Pacific/Honolulu`); Playwright e2e against the guarded test DB on ports 3100/4100 (`pnpm test:e2e`, build in `.next-e2e`), including axe-core WCAG 2.0/2.1 A + AA checks with no rule exclusions, keyboard checks, a 390 px responsive spec and the doc screenshots (`docs/screenshots/phase5/`).

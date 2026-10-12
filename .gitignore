@@ -18,6 +18,10 @@ apps/api/src/generated/
 
 # Test / coverage
 coverage/
+.next-e2e/
+test-results/
+playwright-report/
+apps/web/e2e/.auth/
 
 # Logs and OS files
 *.log

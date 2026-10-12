@@ -21,6 +21,9 @@ function resolveApiUrl(): string {
 const apiUrl = resolveApiUrl();
 
 const nextConfig: NextConfig = {
+  // The e2e build uses its own output dir (NEXT_DIST_DIR=.next-e2e) because rewrites are baked in
+  // at build time and point at the e2e API port.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@workspace/shared'],
