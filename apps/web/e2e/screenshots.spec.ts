@@ -5,9 +5,10 @@ import { storageStatePath } from './fixtures';
 import { apiAs, ok, seededEmployees, settle, startAndSubmit, type TaskDto } from './helpers';
 
 /**
- * Full-page screenshots of the main screens for the docs (docs/screenshots/phase5/), taken against
- * the e2e test database. The tasks below use a fictional company name ("Northwind") so the list
- * screenshot can filter to them; earlier copies are deleted first so reruns don't pile up.
+ * Full-page screenshots of the main screens for the docs (docs/screenshots/phase5/). Not part of
+ * `pnpm test:e2e`: run `pnpm screenshots`, which resets and re-seeds the test database first, so
+ * the images show only the seed data plus the tasks below. Those use a fictional company name
+ * ("Northwind") so the list screenshot can filter to them; earlier copies are deleted first.
  */
 
 const OUT_DIR = path.resolve(__dirname, '../../../docs/screenshots/phase5');
@@ -225,7 +226,7 @@ test.describe('mobile', () => {
 
   test('navigation sheet at 390 px', async ({ page }) => {
     await page.goto('/admin/tasks');
-    await expect(page.getByTestId('task-row').first()).toBeVisible();
+    await expect(page.getByTestId('task-card').first()).toBeVisible();
     await page.getByRole('button', { name: 'Toggle navigation' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await settle(page);

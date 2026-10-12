@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma.js';
 import { transitionTask } from '../src/services/task-workflow.service.js';
 import { createTestUser, loginCookie, type TestUser } from './helpers/auth.js';
+import { holdTaskRowLock, waitForBlockedStatements } from './helpers/locks.js';
 import { createTaskRow, createTestApp, historyRows, taskStatus } from './helpers/tasks.js';
 
 const TASKS = '/api/v1/tasks';
@@ -303,11 +304,28 @@ describe('[spec #9] status and history roll back together', () => {
   });
 });
 
+/**
+ * Starts both requests while the test holds the task's row lock, waits until both conditional
+ * UPDATEs are blocked on it inside MySQL, then releases it. Both transitions therefore really
+ * overlap (not just by `Promise.all` timing): each read the same starting state.
+ */
+async function overlapping<T>(id: string, requests: () => Promise<T>[]): Promise<T[]> {
+  const lock = await holdTaskRowLock(id);
+  const pending = Promise.all(requests());
+  try {
+    await waitForBlockedStatements('UPDATE%tasks%', 2);
+  } finally {
+    lock.release();
+    await lock.done;
+  }
+  return pending;
+}
+
 describe('concurrency guard', () => {
   it('two concurrent approvals: exactly one 200 and one 409, one COMPLETED history row', async () => {
     const id = await taskFor(employee1, 'PENDING_APPROVAL');
 
-    const results = await Promise.all([
+    const results = await overlapping(id, () => [
       act(adminCookie, id, 'approve'),
       act(adminCookie, id, 'approve'),
     ]);
@@ -321,7 +339,7 @@ describe('concurrency guard', () => {
   it('approve racing reject: exactly one wins', async () => {
     const id = await taskFor(employee1, 'PENDING_APPROVAL');
 
-    const results = await Promise.all([
+    const results = await overlapping(id, () => [
       act(adminCookie, id, 'approve'),
       act(adminCookie, id, 'reject', { reason: 'race' }),
     ]);
@@ -333,7 +351,7 @@ describe('concurrency guard', () => {
   it('two concurrent starts: exactly one 200 and one 409, one IN_PROGRESS history row', async () => {
     const id = await taskFor(employee1, 'PENDING');
 
-    const results = await Promise.all([
+    const results = await overlapping(id, () => [
       act(employee1Cookie, id, 'start'),
       act(employee1Cookie, id, 'start'),
     ]);

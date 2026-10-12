@@ -174,7 +174,7 @@ test.describe('create task', () => {
     await page.getByRole('button', { name: 'Create task' }).click();
 
     await expect(toast(page, 'Task created')).toBeVisible();
-    await expect(page).toHaveURL(/\/admin\/tasks\/[a-z0-9]+$/);
+    await expect(page).toHaveURL(/\/admin\/tasks\/(?!new$)[a-z0-9]+$/);
     await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
     const badges = page.getByTestId('task-badges');
     await expect(badges).toContainText('Pending');
@@ -222,6 +222,29 @@ test.describe('task list', () => {
     await expect(page.getByRole('searchbox', { name: 'Search by title' })).toHaveValue('');
   });
 
+  test('the priority filter lives in the URL', async ({ page }) => {
+    const prefix = uniqueTitle('priority');
+    const high = await createTask(`${prefix} high`, { priority: 'HIGH' });
+    const low = await createTask(`${prefix} low`, { priority: 'LOW' });
+
+    await page.goto(`/admin/tasks?q=${encodeURIComponent(prefix)}`);
+    const rows = page.getByTestId('task-row');
+    await expect(rows).toHaveCount(2);
+
+    await choose(page, 'Priority', 'High');
+    await expect(page).toHaveURL(/[?&]priority=HIGH(&|$)/);
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText(high.title);
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: 'Priority' })).toHaveText('High');
+    await expect(rows.filter({ hasText: low.title })).toHaveCount(0);
+
+    await choose(page, 'Priority', 'Low');
+    await expect(page).toHaveURL(/[?&]priority=LOW(&|$)/);
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText(low.title);
+  });
+
   test('sort and pagination', async ({ page }) => {
     // The seed alone has 5 tasks, so a page size of 2 always gives several pages.
     await page.goto('/admin/tasks?pageSize=2');
@@ -246,7 +269,101 @@ test.describe('task list', () => {
   });
 });
 
+test.describe('API errors on the task form', () => {
+  /** Answers the next POST /api/v1/tasks with `body` (status 400); other requests go through. */
+  async function failCreateWith(page: Page, body: object): Promise<void> {
+    await page.route(
+      (url) => url.pathname === '/api/v1/tasks',
+      (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ status: 400, contentType: 'application/json', json: body })
+          : route.fallback(),
+    );
+  }
+
+  async function fillValidTask(page: Page, title: string): Promise<void> {
+    await page.goto('/admin/tasks/new');
+    await page.getByLabel('Title').fill(title);
+    await page.getByLabel('Due date').fill('2030-05-01');
+    await choose(page, 'Assignee', `${USERS.employee1.name} (${USERS.employee1.email})`);
+  }
+
+  test('a 400 with details puts each message on its field', async ({ page }) => {
+    // The client mirrors the API rules, so this response is mocked: the server-side mapping
+    // (validation details → fields) has no other way to be reached from the browser.
+    await failCreateWith(page, {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid request',
+        details: [
+          { path: 'title', message: 'Server says the title is invalid' },
+          { path: 'dueDate', message: 'Server says the due date is invalid' },
+          { path: 'unknownField', message: 'Server says something else is off' },
+        ],
+      },
+    });
+    await fillValidTask(page, uniqueTitle('server field errors'));
+    await page.getByRole('button', { name: 'Create task' }).click();
+
+    await expect(fieldError(page, 'Server says the title is invalid')).toBeVisible();
+    await expect(page.getByLabel('Title')).toHaveAttribute('aria-invalid', 'true');
+    await expect(fieldError(page, 'Server says the due date is invalid')).toBeVisible();
+    await expect(page.getByLabel('Due date')).toHaveAttribute('aria-invalid', 'true');
+    // A path the form doesn't know becomes the form-level error.
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Server says something else is off' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0);
+    await expect(page).toHaveURL('/admin/tasks/new');
+  });
+
+  test('a 400 VALIDATION_ERROR without details shows a form-level error', async ({ page }) => {
+    await failCreateWith(page, {
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid request body' },
+    });
+    await fillValidTask(page, uniqueTitle('server body error'));
+    await page.getByRole('button', { name: 'Create task' }).click();
+
+    await expect(page.getByRole('alert').filter({ hasText: 'Invalid request body' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create task' })).toBeEnabled();
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0);
+    await expect(page).toHaveURL('/admin/tasks/new');
+  });
+});
+
 test.describe('edit and delete', () => {
+  test('saving after the task was approved meanwhile → toast, detail shows Completed', async ({
+    page,
+  }) => {
+    const task = await createTask(uniqueTitle('edit approved'));
+    await submitAsEmployee(task.id);
+    await page.goto(`/admin/tasks/${task.id}/edit`);
+    await page.getByLabel('Title').fill(`${task.title} (too late)`);
+
+    await ok(await admin.post(`/api/v1/tasks/${task.id}/approve`));
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect(toast(page, 'A completed task can no longer be edited')).toBeVisible();
+    await expect(page).toHaveURL(`/admin/tasks/${task.id}`);
+    await expect(page.getByTestId('task-badges')).toContainText('Completed');
+    await expect(page.getByRole('heading', { level: 1, name: task.title })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Edit', exact: true })).toHaveCount(0);
+  });
+
+  test('saving after the task was deleted meanwhile → toast and Task not found', async ({
+    page,
+  }) => {
+    const task = await createTask(uniqueTitle('edit deleted'));
+    await page.goto(`/admin/tasks/${task.id}/edit`);
+    await page.getByLabel('Title').fill(`${task.title} (gone)`);
+
+    expect((await admin.delete(`/api/v1/tasks/${task.id}`)).status()).toBe(204);
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect(toast(page, 'Task not found')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Task not found' })).toBeVisible();
+  });
+
   test('edit the title from the detail page', async ({ page }) => {
     const task = await createTask(uniqueTitle('edit'));
     await page.goto(`/admin/tasks/${task.id}`);

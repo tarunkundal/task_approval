@@ -45,16 +45,34 @@ async function waitUntilUp(url: string, timeoutMs = 60_000): Promise<void> {
   throw new Error(`${url} did not come up within ${timeoutMs} ms`);
 }
 
-test.afterAll(async () => {
-  for (const child of children) {
-    if (child.pid && child.exitCode === null) {
-      try {
-        process.kill(-child.pid, 'SIGTERM');
-      } catch {
-        // Already gone.
-      }
-    }
+/** Sends a signal to a child's whole process group; ignores groups that are already gone. */
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // Already gone.
   }
+}
+
+/** Resolves once the child has exited, or after `timeoutMs`. */
+function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+test.afterAll(async () => {
+  // `next start` sometimes ignores SIGTERM for a while (it waits for open keep-alive
+  // connections), so escalate to SIGKILL for the whole group if it hasn't exited in 5 s.
+  for (const child of children) signalGroup(child, 'SIGTERM');
+  await Promise.all(children.map((child) => waitForExit(child, 5_000)));
+  for (const child of children) signalGroup(child, 'SIGKILL');
   // Both ports must be free again before the next spec.
   await expect.poll(() => isUp(`${WEB_ORIGIN}/login`), { timeout: 15_000 }).toBe(false);
   await expect.poll(() => isUp(`${API_ORIGIN}/health`), { timeout: 15_000 }).toBe(false);

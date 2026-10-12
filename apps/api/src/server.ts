@@ -34,7 +34,13 @@ function shutdown(signal: NodeJS.Signals): void {
   server.close(() => {
     prisma
       .$disconnect()
-      .catch((error: unknown) => console.error('[api] error while disconnecting Prisma', error))
+      // Name only, like the request error handler: no stack or driver message in the logs.
+      .catch((error: unknown) =>
+        console.error(
+          '[api] error while disconnecting Prisma',
+          error instanceof Error ? error.name : typeof error,
+        ),
+      )
       .finally(() => process.exit(0));
   });
 }

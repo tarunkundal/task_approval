@@ -3,6 +3,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma.js';
 import { createTestUser, loginCookie, type TestUser } from './helpers/auth.js';
+import { holdLock, waitForBlockedStatements } from './helpers/locks.js';
 import {
   createTaskRow,
   createTestApp,
@@ -339,20 +340,12 @@ describe('PATCH /api/v1/tasks/:id', () => {
  * PATCH started meanwhile has to wait for it and then sees the committed change.
  */
 async function holdRowChange(id: string, data: Parameters<typeof prisma.task.update>[0]['data']) {
-  let commit!: () => void;
-  let locked!: () => void;
-  const committed = new Promise<void>((resolve) => (commit = resolve));
-  const isLocked = new Promise<void>((resolve) => (locked = resolve));
-  const done = prisma.$transaction(async (tx) => {
-    await tx.task.update({ where: { id }, data });
-    locked();
-    await committed;
-  });
-  await isLocked;
-  return { commit, done };
+  const lock = await holdLock((tx) => tx.task.update({ where: { id }, data }));
+  return { commit: lock.release, done: lock.done };
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Waits until the PATCH's conditional UPDATE is blocked on the held row lock. */
+const patchIsBlocked = () => waitForBlockedStatements('UPDATE%tasks%', 1);
 
 describe('PATCH racing a concurrent approve or delete', () => {
   // Without the fix, the PATCH read the task before blocking on the lock and answered 200 from
@@ -370,7 +363,7 @@ describe('PATCH racing a concurrent approve or delete', () => {
       .set('Cookie', adminCookie)
       .send({ title: 'Too late' })
       .then((res) => res);
-    await sleep(300); // let the PATCH reach its UPDATE, which waits on the row lock
+    await patchIsBlocked(); // the PATCH reached its UPDATE, which waits on the row lock
     approval.commit();
     await approval.done;
     const res = await pending;
@@ -390,7 +383,7 @@ describe('PATCH racing a concurrent approve or delete', () => {
       .set('Cookie', adminCookie)
       .send({ title: 'Too late' })
       .then((res) => res);
-    await sleep(300);
+    await patchIsBlocked();
     deletion.commit();
     await deletion.done;
     const res = await pending;

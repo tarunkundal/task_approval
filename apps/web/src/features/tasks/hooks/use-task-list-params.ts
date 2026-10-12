@@ -10,17 +10,33 @@ import {
   toSearchString,
 } from '../lib/list-params';
 
+type IgnorableKey = 'q' | 'assignedToId';
+
 /**
  * Task-list state synced with the URL query string, so reload and back/forward restore it.
  * Filter, search and sort changes replace the history entry and go back to page 1;
  * page changes push a new entry.
  */
-export function useTaskListParams() {
+export function useTaskListParams({
+  ignore = [],
+}: {
+  /**
+   * URL keys whose control isn't shown (e.g. search and employee on the employee list). They are
+   * dropped so a hand-edited URL can't apply a filter the user can't see, and the next
+   * navigation removes them from the URL.
+   */
+  ignore?: readonly IgnorableKey[];
+} = {}) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
 
-  const params = useMemo(() => parseListParams(searchParams), [searchParams]);
+  const ignored = ignore.join(',');
+  const params = useMemo(() => {
+    const parsed = parseListParams(searchParams);
+    for (const key of ignored ? ignored.split(',') : []) delete parsed[key as IgnorableKey];
+    return parsed;
+  }, [searchParams, ignored]);
 
   const navigate = useCallback(
     (next: TaskListQuery, mode: 'push' | 'replace') => {

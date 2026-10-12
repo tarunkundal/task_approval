@@ -9,7 +9,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "node e2e/prepare-db.mjs && NEXT_DIST_DIR=.next-e2e API_URL=http://localhost:4100 next build && playwright test"
+    "test:e2e": "node e2e/prepare-db.mjs && NEXT_DIST_DIR=.next-e2e API_URL=http://localhost:4100 next build && playwright test",
+    "screenshots": "node e2e/prepare-db.mjs --reset && NEXT_DIST_DIR=.next-e2e API_URL=http://localhost:4100 next build && SCREENSHOTS=1 playwright test --project=screenshots"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",

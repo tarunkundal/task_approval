@@ -4,7 +4,14 @@ import { ErrorState } from '@/components/common/error-state';
 import { LoadingButton } from '@/components/common/loading-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -16,6 +23,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useEmployees } from '@/features/users/hooks/use-employees';
+import { isApiError } from '@/lib/api/errors';
 import { applyApiErrorToForm } from '@/lib/form-errors';
 import { PRIORITY_LABEL } from '@/lib/labels';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +52,15 @@ export const TASK_FORM_FIELDS = [
   'dueDate',
   'assignedToId',
 ] as const satisfies readonly TaskField[];
+
+/**
+ * API error codes this form always shows itself (on a field, or as a form-level error when the
+ * error has no field details); the create/edit views toast every other error.
+ */
+export const INLINE_FORM_CODES: ReadonlySet<string> = new Set([
+  'VALIDATION_ERROR',
+  'INVALID_ASSIGNEE',
+]);
 
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 5000;
@@ -113,7 +130,12 @@ export function TaskForm(props: TaskFormProps) {
         await props.onSubmit(patch);
       }
     } catch (error) {
-      applyApiErrorToForm(error, setError, TASK_FORM_FIELDS);
+      if (applyApiErrorToForm(error, setError, TASK_FORM_FIELDS)) return;
+      // The views don't toast these codes, so one without field details (e.g. "Invalid request
+      // body") is shown as a form-level error instead of failing silently.
+      if (isApiError(error) && INLINE_FORM_CODES.has(error.code)) {
+        setError('root.server', { type: 'server', message: error.message });
+      }
     }
   });
 
@@ -265,10 +287,21 @@ function AssigneeField({
   error: string | undefined;
 }) {
   const employees = useEmployees();
+  // A <label for> needs a form control; while loading, failed or empty there is none, so the
+  // heading becomes plain text that names the field group instead.
+  const hasSelect = employees.isSuccess && employees.data.length > 0;
+  const titleId = `${id}-title`;
 
   return (
-    <Field data-invalid={message ? true : undefined}>
-      <FieldLabel htmlFor={id}>Assignee</FieldLabel>
+    <Field
+      data-invalid={message ? true : undefined}
+      aria-labelledby={hasSelect ? undefined : titleId}
+    >
+      {hasSelect ? (
+        <FieldLabel htmlFor={id}>Assignee</FieldLabel>
+      ) : (
+        <FieldTitle id={titleId}>Assignee</FieldTitle>
+      )}
       {employees.isPending ? (
         <Skeleton className="h-9 w-full" aria-label="Loading employees" />
       ) : employees.isError ? (

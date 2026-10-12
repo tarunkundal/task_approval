@@ -1,19 +1,14 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
 import { isApiError } from '@/lib/api/errors';
 import { apiErrorMessage } from '@/lib/form-errors';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { useCreateTask } from '../hooks/use-task-mutations';
 import { ADMIN_TASKS_PATH, adminTaskHref } from '../lib/paths';
-import { TaskForm } from './task-form';
+import { INLINE_FORM_CODES, TaskForm } from './task-form';
 
-/** Codes the form shows inline (field / root errors); anything else is toasted. */
-export const INLINE_FORM_CODES: ReadonlySet<string> = new Set([
-  'VALIDATION_ERROR',
-  'INVALID_ASSIGNEE',
-]);
-
+/** Codes the form shows inline (field / root errors, see `INLINE_FORM_CODES`) aren't toasted. */
 export function toastUnlessInline(error: unknown, fallback: string): void {
   if (isApiError(error) && INLINE_FORM_CODES.has(error.code)) return;
   toast.error(apiErrorMessage(error, fallback));

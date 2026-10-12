@@ -83,7 +83,12 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, _req, res, next)
     return;
   }
 
-  // Unexpected: log server-side (name/message/stack only), return a generic message.
-  console.error('[api] unhandled error', err instanceof Error ? (err.stack ?? err.message) : err);
+  // Unexpected: log the error's name and message only. No stack trace (spec §7: none in API
+  // errors or logs) and no other properties, which could hold request data. Non-Error values are
+  // logged by type only, since they could be anything.
+  console.error(
+    '[api] unhandled error',
+    err instanceof Error ? { name: err.name, message: err.message } : { type: typeof err },
+  );
   send(res, 500, { code: ErrorCode.INTERNAL_ERROR, message: 'An unexpected error occurred' });
 };

@@ -1,6 +1,6 @@
 # Architecture & Implementation Plan
 
-Status: **Approved 2026-10-10. Phases 2–4 complete; Phase 5 (frontend) implemented, awaiting review.** Source of truth for requirements: `PROJECT_SPEC.md`.
+Status: **Approved 2026-10-10. Phases 2–5 complete; Phase 6 (testing and hardening) implemented and verified (`docs/phase6-verification.md`), awaiting re-review.** Source of truth for requirements: `PROJECT_SPEC.md`.
 Decisions marked **(D#)** are listed in section 11 and need confirmation before Phase 2.
 
 ## 1. Environment findings (Phase 1 inspection)
@@ -261,12 +261,12 @@ Full list: `docs/phase2-verification.md`.
 - **#8** Validate password length in UTF-8 bytes (≤ 72) on `POST /users`.
 
 **Phase 6**
-- **#7** Add an automated test that re-running the seed is safe.
+- **#7** Add an automated test that re-running the seed is safe. *(Done: `test/seed.test.ts`.)*
 
 **Phase 7**
 - **#2** Add an explicit `DATABASE_SSL` option for the runtime adapter, and verify it against the chosen host.
 - **#3** Make `prisma` and `tsx` available on the production host: move them to dependencies or require a full install.
-- **#5** Document the seed as a single-instance release step, or add `GET_LOCK`.
+- **#5** Document the seed as a single-instance release step, or add `GET_LOCK`. *(Done in Phase 6 with a row lock; see the Phase 6 notes.)*
 
 **Done:** #9 (this document's status line).
 
@@ -335,3 +335,16 @@ Full plan: `docs/phase5-plan.md` (decisions P1–P22). Evidence: `docs/phase5-ve
 - **Dates (P13).** `dueDate` strings are never parsed with `new Date(string)`; overdue badges use the viewer's local date, the dashboard Overdue card uses the API's UTC count.
 - **Errors.** Both error boundaries use Next's `retry` (re-fetches the server render); verified in a browser with the API down and back up (`e2e/error-boundary.spec.ts`).
 - **Tests.** Vitest for pure modules (`TZ=Pacific/Honolulu`); Playwright e2e against the guarded test DB on ports 3100/4100 (`pnpm test:e2e`, build in `.next-e2e`), including axe-core WCAG 2.0/2.1 A + AA checks with no rule exclusions, keyboard checks, a 390 px responsive spec and the doc screenshots (`docs/screenshots/phase5/`).
+
+### Phase 6 notes (testing and hardening)
+
+Evidence: `docs/phase6-verification.md`. No schema change and no new dependency.
+
+- **Hardening: no stack traces in logs** (spec §7). The central error handler logged `err.stack` for unexpected errors; it now logs only `{ name, message }` (non-`Error` values by type only), and the shutdown path logs only the Prisma error name. Prisma errors were already reduced to `{ name, code }`. `test/log-leak.test.ts` drives every failure path (bad logins, 400/401/403/404/409, CSRF, malformed JSON, a forced Prisma validation error whose message would echo a hash, an unexpected error) and searches the captured logs and response bodies for hashes, tokens, `eyJ`, `JWT_SECRET`, the DB password and stack frames. It fails against the old handler.
+- **Seed** logic moved to `prisma/demo-seed.ts` (importable); `prisma/seed.ts` is only the CLI entry, so `pnpm db:seed` is unchanged. `test/seed.test.ts` runs it against the test DB: second run changes nothing (same users, hashes, `updatedAt`, tasks, history), an existing password/name/role is never reset (even with new `SEED_*_PASSWORD` values), a missing demo user is recreated without touching the others (Phase 2 review #7).
+- **Concurrent seeds** (Phase 2 review #5): the sample-task transaction runs at READ COMMITTED and first locks the admin user's row with `SELECT … FOR UPDATE`, so a second run waits until the first commits and then sees its tasks. A row lock instead of `GET_LOCK`, because `GET_LOCK` is per connection: with the pooled Prisma client it would have to be released on the same connection after COMMIT. The test forces two overlapping runs and fails if the lock is removed. Two seeds racing to *create the same user* can still make one run fail on the unique email (no duplicate is possible); treat the seed as a single-run release step anyway.
+- **Deterministic race tests** (Phase 4 review #1): the concurrency and PATCH-race tests hold the task's row lock in a test transaction and wait until the competing UPDATEs are visible in `information_schema.PROCESSLIST` (own sessions are visible without the PROCESS privilege) before releasing it, instead of relying on `Promise.all` timing or a 300 ms sleep (`test/helpers/locks.ts`).
+- **Mobile lists.** Task tables and the approval queue render as tables from `lg` (1024 px) up and as stacked cards below it (`data-testid` `task-card` / `approval-card`), so priority, status, row actions and Approve/Reject are visible on a phone without sideways scrolling. Only one of the two is displayed at a time (CSS `hidden`), so assistive tech sees one list.
+- **Employee list** ignores `q` and `assignedToId` URL params (no visible control for them); the next filter change drops them from the URL.
+- **Task form** shows a form-level error for a `VALIDATION_ERROR` without field details (it used to fail silently). The Assignee field uses a plain heading, not an orphan `<label for>`, while employees are loading, failed or empty.
+- **Screenshots** are no longer part of `pnpm test:e2e`. `pnpm screenshots` resets and re-seeds the test DB (`prisma migrate reset --force` through the `_test` guard), builds, and runs only the `screenshots` Playwright project (`SCREENSHOTS=1`).

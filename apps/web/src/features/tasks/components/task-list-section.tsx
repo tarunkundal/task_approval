@@ -1,13 +1,13 @@
 'use client';
 
-import type { TaskDto } from '@workspace/shared';
-import { ListX } from 'lucide-react';
-import type { ReactNode } from 'react';
 import { EmptyState } from '@/components/common/empty-state';
 import { ErrorState } from '@/components/common/error-state';
 import { PaginationControls } from '@/components/common/pagination-controls';
 import { TableSkeleton } from '@/components/common/table-skeleton';
 import { Button } from '@/components/ui/button';
+import type { TaskDto } from '@workspace/shared';
+import { ListX } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useTaskListParams } from '../hooks/use-task-list-params';
 import { useTaskList } from '../hooks/use-task-queries';
 import { TaskFilters } from './task-filters';
@@ -39,7 +39,12 @@ export function TaskListSection({
   emptyAction,
   emptyDescription = 'Tasks will appear here once they are created.',
 }: TaskListSectionProps) {
-  const { params, setParams, setPage, clearFilters, filtered } = useTaskListParams();
+  // Filters without a visible control are ignored (the API scope makes them harmless anyway).
+  const ignore = [
+    ...(showSearch ? [] : (['q'] as const)),
+    ...(showEmployeeFilter ? [] : (['assignedToId'] as const)),
+  ];
+  const { params, setParams, setPage, clearFilters, filtered } = useTaskListParams({ ignore });
   const list = useTaskList(params);
 
   let content: ReactNode;
@@ -72,7 +77,11 @@ export function TaskListSection({
           <EmptyState
             icon={ListX}
             title="No tasks match these filters"
-            description="Try a different search or clear the filters."
+            description={
+              showSearch
+                ? 'Try a different search or clear the filters.'
+                : 'Try different filters or clear them.'
+            }
             action={
               <Button type="button" variant="outline" onClick={clearFilters}>
                 Clear filters

@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/table';
 import { formatDateTime } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import { TaskStatus } from '@workspace/shared';
+import { TaskStatus, type TaskDto } from '@workspace/shared';
 import { Check, Inbox } from 'lucide-react';
 import Link from 'next/link';
 import { useTaskTransition } from '../hooks/use-task-mutations';
@@ -27,6 +27,8 @@ import { RejectTaskDialog } from './reject-task-dialog';
 
 const TITLE = 'Approval queue';
 const PAGE_SIZE = 10;
+const TITLE_LINK_CLASS =
+  'font-medium underline-offset-4 outline-none hover:underline focus-visible:rounded-sm focus-visible:ring-[3px] focus-visible:ring-ring/50';
 
 /** The full queue in the task list (same filter and order as the dashboard queue). */
 const FULL_QUEUE_HREF = `${ADMIN_TASKS_PATH}?status=${TaskStatus.PENDING_APPROVAL}&sort=updatedAt&order=asc`;
@@ -34,6 +36,7 @@ const FULL_QUEUE_HREF = `${ADMIN_TASKS_PATH}?status=${TaskStatus.PENDING_APPROVA
 /**
  * Dashboard queue of tasks waiting for review (PENDING_APPROVAL), longest-waiting first, with
  * inline Approve and Reject. A task leaves the queue once the list refetches after the action.
+ * A table from `lg` up; stacked cards below it, so Approve/Reject never sit off-screen on a phone.
  */
 export function ApprovalQueue() {
   const list = useTaskList({
@@ -43,6 +46,24 @@ export function ApprovalQueue() {
     pageSize: PAGE_SIZE,
   });
   const approve = useTaskTransition();
+
+  const reviewButtons = (task: TaskDto) => (
+    <>
+      <LoadingButton
+        type="button"
+        size="sm"
+        loading={approve.isPending && approve.variables?.id === task.id}
+        loadingText="Approving…"
+        disabled={approve.isPending}
+        onClick={() => approve.mutate({ id: task.id, action: 'approve' })}
+      >
+        <Check aria-hidden="true" />
+        Approve
+        <span className="sr-only"> &ldquo;{task.title}&rdquo;</span>
+      </LoadingButton>
+      <RejectTaskDialog task={task} size="sm" disabled={approve.isPending} />
+    </>
+  );
 
   let content;
   if (list.isPending) {
@@ -69,34 +90,30 @@ export function ApprovalQueue() {
     content = (
       <div className="space-y-4">
         <div
-          className={cn('rounded-md border', list.isPlaceholderData && 'opacity-60')}
+          className={cn(list.isPlaceholderData && 'opacity-60')}
           aria-busy={list.isPlaceholderData || undefined}
         >
-          <Table>
-            <TableCaption className="sr-only">{TITLE}</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Task</TableHead>
-                <TableHead scope="col">Assignee</TableHead>
-                <TableHead scope="col">Priority</TableHead>
-                <TableHead scope="col">Due date</TableHead>
-                {/* updatedAt: the submission time unless the task was edited afterwards. */}
-                <TableHead scope="col">Last updated</TableHead>
-                <TableHead scope="col" className="text-right">
-                  Review
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tasks.map((task) => {
-                const approving = approve.isPending && approve.variables?.id === task.id;
-                return (
+          <div className="hidden rounded-md border lg:block">
+            <Table>
+              <TableCaption className="sr-only">{TITLE}</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Task</TableHead>
+                  <TableHead scope="col">Assignee</TableHead>
+                  <TableHead scope="col">Priority</TableHead>
+                  <TableHead scope="col">Due date</TableHead>
+                  {/* updatedAt: the submission time unless the task was edited afterwards. */}
+                  <TableHead scope="col">Last updated</TableHead>
+                  <TableHead scope="col" className="text-right">
+                    Review
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tasks.map((task) => (
                   <TableRow key={task.id} data-testid="approval-row">
                     <TableCell className="min-w-[12rem] whitespace-normal">
-                      <Link
-                        href={adminTaskHref(task.id)}
-                        className="font-medium underline-offset-4 outline-none hover:underline focus-visible:rounded-sm focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                      >
+                      <Link href={adminTaskHref(task.id)} className={TITLE_LINK_CLASS}>
                         {task.title}
                       </Link>
                     </TableCell>
@@ -111,27 +128,52 @@ export function ApprovalQueue() {
                       <time dateTime={task.updatedAt}>{formatDateTime(task.updatedAt)}</time>
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-2">
-                        <LoadingButton
-                          type="button"
-                          size="sm"
-                          loading={approving}
-                          loadingText="Approving…"
-                          disabled={approve.isPending}
-                          onClick={() => approve.mutate({ id: task.id, action: 'approve' })}
-                        >
-                          <Check aria-hidden="true" />
-                          Approve
-                          <span className="sr-only"> &ldquo;{task.title}&rdquo;</span>
-                        </LoadingButton>
-                        <RejectTaskDialog task={task} size="sm" disabled={approve.isPending} />
-                      </div>
+                      <div className="flex justify-end gap-2">{reviewButtons(task)}</div>
                     </TableCell>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <ul aria-label={TITLE} className="grid gap-3 lg:hidden">
+            {tasks.map((task) => (
+              <li
+                key={task.id}
+                data-testid="approval-card"
+                className="space-y-3 rounded-md border p-4"
+              >
+                <Link
+                  href={adminTaskHref(task.id)}
+                  className={cn(TITLE_LINK_CLASS, 'block break-words')}
+                >
+                  {task.title}
+                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  <PriorityBadge priority={task.priority} />
+                </div>
+                <dl className="grid gap-1 text-sm">
+                  <div className="flex flex-wrap gap-x-2">
+                    <dt className="text-muted-foreground">Assignee</dt>
+                    <dd>{task.assignedTo.name}</dd>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2">
+                    <dt className="text-muted-foreground">Due date</dt>
+                    <dd>
+                      <DueDate dueDate={task.dueDate} status={task.status} />
+                    </dd>
+                  </div>
+                  <div className="flex flex-wrap gap-x-2">
+                    <dt className="text-muted-foreground">Last updated</dt>
+                    <dd>
+                      <time dateTime={task.updatedAt}>{formatDateTime(task.updatedAt)}</time>
+                    </dd>
+                  </div>
+                </dl>
+                <div className="flex flex-wrap gap-2">{reviewButtons(task)}</div>
+              </li>
+            ))}
+          </ul>
         </div>
         {meta.total > tasks.length ? (
           <p className="text-sm text-muted-foreground">

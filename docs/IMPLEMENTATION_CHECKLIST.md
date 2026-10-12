@@ -102,16 +102,17 @@ Independent re-check by the orchestrator (Node 22.19.0): `pnpm -r typecheck`, `p
 Reviews: chunk A, B, C and D all APPROVED (`docs/phase5-*-review.md`). Non-blocking findings are carried into Phase 6 below.
 
 ## Phase 6 — Testing & hardening (§15, §19)
-- [ ] Screenshot spec runs only on request (env flag or separate Playwright project + script), so `test:e2e` doesn't overwrite the committed PNGs (Phase 5 review #1).
-- [ ] Screenshots retaken against a freshly reset and seeded database, with no "E2E…" tasks or e2e accounts visible (Phase 5 review #2).
-- [ ] Mobile approval queue and task tables: Approve/Reject and priority reachable without hidden horizontal scrolling (stack on small screens) (Phase 5 review #3).
-- [ ] Keyboard test reaches the Status filter with Tab instead of `.focus()` (Phase 5 review #5).
-- [ ] Phase 5 admin/employee review non-blocking findings handled or explicitly accepted (`docs/phase5-admin-review.md`, `docs/phase5-employee-review.md`).
-- [ ] Automated test that re-running the seed is safe (Phase 2 review #7).
-- [ ] Fresh DB: migrate, seed, then the full API test suite passes. *(record command and output summary)*
-- [ ] `pnpm -r typecheck`, `pnpm -r lint` and `pnpm -r build` pass.
-- [ ] Manual end-to-end: create → start → submit → reject → resubmit → approve; unauthorized attempts blocked.
-- [ ] Logs and errors checked for leaked secrets, hashes or tokens.
+Full evidence: `docs/phase6-verification.md`. Final run (Node 22.19.0): `pnpm install --frozen-lockfile`, `pnpm -r typecheck`, `pnpm -r lint`, `API_URL=http://localhost:4000 pnpm -r build`, `pnpm format:check` all exit 0. API 207/207, web 61/61, `CI=1 pnpm test:e2e` 82/82 (3 setup + 79 chromium), `pnpm screenshots` 13/13, dev walkthrough 12/12 PASS. Not committed (orchestrator commits).
+- [x] Screenshot spec runs only on request (env flag or separate Playwright project + script), so `test:e2e` doesn't overwrite the committed PNGs (Phase 5 review #1). *(`playwright.config.mts` `testIgnore` + `SCREENSHOTS=1` project, `pnpm screenshots`; verification §3: 82 e2e tests ran with 0 `[screenshots]`, before/after `shasum` + `git diff --stat` of `docs/screenshots` IDENTICAL)*
+- [x] Screenshots retaken against a freshly reset and seeded database, with no "E2E…" tasks or e2e accounts visible (Phase 5 review #2). *(verification §4: `pnpm screenshots` 13 passed after `migrate reset --force` + seed of the test DB; all 10 PNGs rewritten and opened, only the 3 demo users, seed tasks and Northwind tasks; admin Total 10, employees page 2 rows)*
+- [x] Mobile approval queue and task tables: Approve/Reject and priority reachable without hidden horizontal scrolling (stack on small screens) (Phase 5 review #3). *(cards below `lg` in `task-table.tsx` / `approval-queue.tsx`; responsive.spec "approval queue: Approve, Reject and priority are on screen without scrolling sideways" + 2 more, axe on 3 card layouts, all in the 82/82 run; `mobile-admin-dashboard.png` shows the cards with Approve/Reject on screen)*
+- [x] Keyboard test reaches the Status filter with Tab instead of `.focus()` (Phase 5 review #5). *(a11y.spec "status filter: arrow keys and Enter choose an option": Tab from the search box, asserts Status focused; in the 82/82 run)*
+- [x] Phase 5 admin/employee review non-blocking findings handled or explicitly accepted (`docs/phase5-admin-review.md`, `docs/phase5-employee-review.md`). *(verification §7: admin #1–#6 and employee #1–#2 each mapped to a fix and a named e2e test, all in the 82/82 run; Phase 5 #1–#5, Phase 2 #5/#7, Phase 4 #1 also mapped)*
+- [x] Automated test that re-running the seed is safe (Phase 2 review #7). *(`test/seed.test.ts`, 5 tests on the real test DB incl. "a second run changes nothing…" and "two overlapping runs insert the sample tasks once"; passed in 207/207 and in the separate leak+seed run 6/6)*
+- [x] Fresh DB: migrate, seed, then the full API test suite passes. *(verification §2: dev DB `migrate reset --force` → 0 rows, `migrate deploy` "No pending migrations", `pnpm db:seed` → 3 users / 5 tasks / 14 history, 2nd run "kept" ×3 + "skipped sample tasks", same counts; test DB `prepare-db.mjs --reset`; then `pnpm --filter api test` 16 files, 207/207)*
+- [x] `pnpm -r typecheck`, `pnpm -r lint` and `pnpm -r build` pass. *(verification §1: all `exit=0`, build with `API_URL=http://localhost:4000`)*
+- [x] Manual end-to-end: create → start → submit → reject → resubmit → approve; unauthorized attempts blocked. *(verification §5: `e2e/dev-walkthrough.mjs` against built API :4000 + `next start` :3000 on the dev DB → 12 PASS, "ALL CHECKS PASSED": full cycle with 6 history entries; employee approve 403, other employee 404, role redirect, signed-out redirect, CSRF 403, unauthenticated 401. Scripted browser run, not a hand click-through. Servers stopped, ports free; dev DB reset + reseeded afterwards)*
+- [x] Logs and errors checked for leaked secrets, hashes or tokens. *(verification §6: `test/log-leak.test.ts` passed. It checks logs and bodies for `passwordHash`, `$2?$`, real hashes, the `tas_token` value, `eyJ`, `JWT_SECRET`, the DB password and URL, stack frames and `"stack"`, and 500 bodies are exactly `INTERNAL_ERROR`. Dev-server logs from the walkthrough: 0 matches)*
 
 ## Phase 7 — Deployment (§18)
 - [ ] Hosting confirmed (D9); free-tier limits checked for the 14-day window.

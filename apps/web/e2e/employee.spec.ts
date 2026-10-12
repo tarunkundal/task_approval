@@ -103,6 +103,24 @@ test.describe('dashboard', () => {
     await expect(rows.filter({ hasText: low.title })).toHaveCount(1);
   });
 
+  test('search and employee URL params are ignored (no hidden filters)', async ({ page }) => {
+    const mine = await createTaskAs(admin, employees.employee1.id, uniqueTitle('hidden filters'));
+    const rows = page.getByTestId('task-row');
+
+    // Neither control exists on the employee list, so neither key may narrow it.
+    await page.goto(
+      `/employee?q=${encodeURIComponent('no task has this title')}&assignedToId=${employees.employee2.id}`,
+    );
+    await expect(rows.filter({ hasText: mine.title })).toHaveCount(1);
+    await expect(page.getByText('No tasks match these filters')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Clear filters' })).toHaveCount(0);
+
+    // The next filter change writes a clean URL without the ignored keys.
+    await choose(page, 'Status', 'Pending');
+    await expect(page).toHaveURL('/employee?status=PENDING');
+    await expect(rows.filter({ hasText: mine.title })).toHaveCount(1);
+  });
+
   test('a summary card opens the filtered list', async ({ page }) => {
     await page.goto('/employee');
     await page.getByRole('link', { name: /^In progress/ }).click();
@@ -229,7 +247,32 @@ test.describe('task detail', () => {
     expect((await admin.delete(`/api/v1/tasks/${task.id}`)).status()).toBe(204);
 
     await page.getByRole('button', { name: 'Post comment' }).click();
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toBeVisible();
+    // POST /comments → 404: the API message is toasted and the refetch shows "Task not found".
+    await expect(
+      page.locator('[data-sonner-toast][data-type="error"]').filter({ hasText: 'Task not found' }),
+    ).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: 'Task not found' })).toBeVisible();
+  });
+
+  test('commenting on a task reassigned meanwhile shows the error and Task not found', async ({
+    page,
+  }) => {
+    const task = await createTaskAs(admin, employees.employee1.id, uniqueTitle('reassigned'));
+    await page.goto(`/employee/tasks/${task.id}`);
+    await expect(page.getByRole('heading', { level: 1, name: task.title })).toBeVisible();
+    await page.getByLabel('Add a comment').fill('Picking this up now.');
+
+    await ok(
+      await admin.patch(`/api/v1/tasks/${task.id}`, {
+        data: { assignedToId: employees.employee2.id },
+      }),
+    );
+
+    await page.getByRole('button', { name: 'Post comment' }).click();
+    await expect(
+      page.locator('[data-sonner-toast][data-type="error"]').filter({ hasText: 'Task not found' }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Task not found' })).toBeVisible();
+    await expect(page.getByText(task.title)).toHaveCount(0);
   });
 });

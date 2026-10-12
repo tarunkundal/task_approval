@@ -12,6 +12,14 @@ const API_ORIGIN = `http://localhost:${API_PORT}`;
 
 const testEnv = loadTestEnv();
 
+/**
+ * `screenshots.spec.ts` rewrites the committed PNGs in docs/screenshots/phase5/, so it is left
+ * out of `pnpm test:e2e` and only runs with SCREENSHOTS=1 (`pnpm screenshots`, which first
+ * resets and re-seeds the test database so the images show only demo data).
+ */
+const SCREENSHOTS = process.env.SCREENSHOTS === '1';
+const SCREENSHOT_SPEC = /screenshots\.spec\.ts/;
+
 export default defineConfig({
   testDir: 'e2e',
   fullyParallel: false,
@@ -29,9 +37,24 @@ export default defineConfig({
     {
       name: 'chromium',
       testMatch: /.*\.spec\.ts/,
+      // The doc screenshots are not a test: they only run through `pnpm screenshots`.
+      testIgnore: SCREENSHOT_SPEC,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], channel: process.env.PLAYWRIGHT_CHANNEL || undefined },
     },
+    ...(SCREENSHOTS
+      ? [
+          {
+            name: 'screenshots',
+            testMatch: SCREENSHOT_SPEC,
+            dependencies: ['setup'],
+            use: {
+              ...devices['Desktop Chrome'],
+              channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+            },
+          },
+        ]
+      : []),
   ],
   webServer: [
     {

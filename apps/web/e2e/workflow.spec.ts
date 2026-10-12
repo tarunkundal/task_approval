@@ -28,7 +28,8 @@ test('create → start → submit → reject → comment → resubmit → approv
     await choose(admin, 'Assignee', `${USERS.employee1.name} (${USERS.employee1.email})`);
     await admin.getByRole('button', { name: 'Create task' }).click();
     await expect(toast(admin, 'Task created')).toBeVisible();
-    await expect(admin).toHaveURL(/\/admin\/tasks\/[a-z0-9]+$/);
+    // Not `/admin/tasks/new`: the toast shows before the navigation to the new task finishes.
+    await expect(admin).toHaveURL(/\/admin\/tasks\/(?!new$)[a-z0-9]+$/);
     const id = new URL(admin.url()).pathname.split('/').pop() ?? '';
     detailPath = `/employee/tasks/${id}`;
   });

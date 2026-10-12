@@ -205,6 +205,29 @@ test.describe('axe: mobile navigation', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
     await expectNoViolations(page);
   });
+
+  test('dashboard cards: approval queue and recent tasks', async ({ page }) => {
+    await page.goto('/admin');
+    await expect(page.getByTestId('approval-card').first()).toBeVisible();
+    await expect(page.getByTestId('task-card').first()).toBeVisible();
+    await expectNoViolations(page);
+  });
+
+  test('task list cards', async ({ page }) => {
+    await page.goto('/admin/tasks');
+    await expect(page.getByTestId('task-card').first()).toBeVisible();
+    await expectNoViolations(page);
+  });
+});
+
+test.describe('axe: mobile employee', () => {
+  test.use({ storageState: storageStatePath('employee1'), viewport: { width: 390, height: 844 } });
+
+  test('dashboard cards', async ({ page }) => {
+    await page.goto('/employee');
+    await expect(page.getByTestId('task-card').first()).toBeVisible();
+    await expectNoViolations(page);
+  });
 });
 
 test.describe('keyboard: login form', () => {
@@ -292,8 +315,13 @@ test.describe('keyboard: admin', () => {
   test('status filter: arrow keys and Enter choose an option', async ({ page }) => {
     await page.goto('/admin/tasks');
     await expect(page.getByTestId('task-row').first()).toBeVisible();
+    const search = page.getByRole('searchbox', { name: 'Search by title' });
     const status = page.getByRole('combobox', { name: 'Status' });
-    await status.focus();
+    // Start in the search box and reach the Status select with Tab (proves it is a Tab stop).
+    await search.focus();
+    await expect(search).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(status).toBeFocused();
     expect(await focusIsVisible(page)).toBe(true);
 
     await page.keyboard.press('ArrowDown');
